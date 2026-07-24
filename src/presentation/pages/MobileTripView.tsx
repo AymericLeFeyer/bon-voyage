@@ -12,6 +12,7 @@ import {
   Locate,
   Pencil,
   Plus,
+  Settings,
   StickyNote,
   Wallet,
   type LucideIcon,
@@ -29,7 +30,7 @@ import { distanceLabel } from '@/shared/lib/geo';
 import type { SaveStatus } from '@/presentation/hooks/useTrip';
 import type { MapSelection } from '@/presentation/types';
 import { ThemeToggle } from '@/presentation/components/ThemeToggle';
-import { AdminLock } from '@/presentation/components/AdminLock';
+import { UserMenu } from '@/presentation/components/UserMenu';
 import { TripMap } from '@/presentation/components/map/TripMap';
 import { MobileSheet, type SheetSnap } from '@/presentation/components/mobile/MobileSheet';
 import { QuickAddPlace } from '@/presentation/components/mobile/QuickAddPlace';
@@ -48,6 +49,7 @@ interface MobileTripViewProps {
   viewMode: 'stages' | 'days';
   mutate: (updater: (trip: Trip) => Trip) => void;
   onToggleView: () => void;
+  onOpenSettings: () => void;
   onSelectStage: (stageId: string) => void;
   onSelectPlace: (stageId: string, placeId: string) => void;
   onSelectLeg: (stageId: string) => void;
@@ -697,6 +699,7 @@ export function MobileTripView({
   viewMode,
   mutate,
   onToggleView,
+  onOpenSettings,
   onSelectStage,
   onSelectPlace,
   onSelectLeg,
@@ -900,8 +903,19 @@ export function MobileTripView({
               <Wallet className="h-4 w-4" />
             </button>
           )}
-          <AdminLock />
+          {isAdmin && (
+            <button
+              onClick={onOpenSettings}
+              className="flex h-9 w-9 items-center justify-center text-foreground"
+              title="Paramètres du voyage"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          )}
           <ThemeToggle />
+          <div className="flex h-9 w-9 items-center justify-center">
+            <UserMenu />
+          </div>
         </div>
       </header>
 

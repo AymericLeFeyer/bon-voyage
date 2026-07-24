@@ -1,14 +1,14 @@
 import type { TripRepository } from '@/domain/trip/repositories/TripRepository';
 import { httpClient } from '@/infrastructure/http/httpClient';
-import type { Trip, TripInput, TripSummary } from '@shared/types/trip';
+import type { Trip, TripEnvelope, TripInput, TripSummary } from '@shared/types/trip';
 
 export class HttpTripRepository implements TripRepository {
   list(): Promise<TripSummary[]> {
     return httpClient.get<TripSummary[]>('/trips');
   }
 
-  getById(id: string): Promise<Trip> {
-    return httpClient.get<Trip>(`/trips/${id}`);
+  getById(id: string): Promise<TripEnvelope> {
+    return httpClient.get<TripEnvelope>(`/trips/${id}`);
   }
 
   create(input?: TripInput): Promise<Trip> {
@@ -21,6 +21,10 @@ export class HttpTripRepository implements TripRepository {
 
   remove(id: string): Promise<void> {
     return httpClient.delete<void>(`/trips/${id}`);
+  }
+
+  setPublic(id: string, isPublic: boolean): Promise<Trip> {
+    return httpClient.patch<Trip>(`/trips/${id}/settings`, { isPublic });
   }
 }
 

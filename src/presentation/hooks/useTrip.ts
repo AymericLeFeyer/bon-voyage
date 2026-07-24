@@ -1,27 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Trip, TripInput } from '@shared/types/trip';
+import type { Trip, TripAccess, TripInput } from '@shared/types/trip';
 import { tripRepository } from '@/infrastructure/trip/HttpTripRepository';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface UseTripResult {
   trip: Trip | null;
+  /** Accès du visiteur (owner/editor/public), null tant que non chargé. */
+  access: TripAccess | null;
   loading: boolean;
   loadError: string | null;
   saveStatus: SaveStatus;
   /** Applique une mutation pure et déclenche l'autosave débouncé. */
   mutate: (updater: (trip: Trip) => Trip) => void;
+  /** Remplace localement le voyage (ex. après un changement de réglage). */
+  setTrip: (trip: Trip) => void;
 }
 
 const AUTOSAVE_DELAY_MS = 700;
 
 function toInput(trip: Trip): TripInput {
-  const { id: _id, createdAt: _c, updatedAt: _u, ...input } = trip;
+  const { id: _id, createdAt: _c, updatedAt: _u, ownerId: _o, isPublic: _p, ...input } = trip;
   return input;
 }
 
 export function useTrip(tripId: string): UseTripResult {
   const [trip, setTrip] = useState<Trip | null>(null);
+  const [access, setAccess] = useState<TripAccess | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
@@ -35,8 +40,11 @@ export function useTrip(tripId: string): UseTripResult {
     setLoadError(null);
     tripRepository
       .getById(tripId)
-      .then((loaded) => {
-        if (active) setTrip(loaded);
+      .then((envelope) => {
+        if (active) {
+          setTrip(envelope.trip);
+          setAccess(envelope.access);
+        }
       })
       .catch((err: unknown) => {
         if (active) setLoadError(err instanceof Error ? err.message : 'Erreur de chargement');
@@ -85,5 +93,5 @@ export function useTrip(tripId: string): UseTripResult {
     return () => window.removeEventListener('beforeunload', handler);
   }, [flush]);
 
-  return { trip, loading, loadError, saveStatus, mutate };
+  return { trip, access, loading, loadError, saveStatus, mutate, setTrip };
 }

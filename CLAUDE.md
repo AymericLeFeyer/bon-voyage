@@ -1,16 +1,18 @@
-# CLAUDE.md — Trip Visualizer
+# CLAUDE.md — Bon Voyage
 
-> Dernière mise à jour : 2026-07-23 (bascule vue par jour / par étape, tiroirs empilés & redimensionnables, retrait partage + description)
+> Dernière mise à jour : 2026-07-24 (passage SaaS : comptes email/mdp, profils, invitations par email + lien /invite/:token avec envoi d'email pluggable (Resend/console), voyage public, remplacement du code admin par l'auth)
 
-App web pour visualiser un voyage (Japon) sur une carte : étapes ordonnées (nuits) + lieux satellites sans ordre. Autosave, **sans authentification**.
+**Bon Voyage** — *« Planifiez vos voyages et voyez-les prendre forme sur la carte. »* App web multi-comptes pour planifier/visualiser un voyage sur une carte : étapes ordonnées (nuits) + lieux satellites sans ordre. Autosave. **Open source, self-hosted, option SaaS.** Marque centralisée dans `src/shared/constants/brand.ts` (`BRAND.name` / `BRAND.tagline`).
 
-> ⚠️ **Retirés** : le bouton « Partager le lien » (desktop + mobile) et l'affichage/édition de `trip.description` (sidebar + sheet). Le champ `description` reste dans le modèle mais n'est plus montré ni éditable (`defaultTrip` ne le remplit plus). L'ancien `ItineraryModal` a été remplacé par la vue par jour intégrée.
+> ⚠️ **Retirés** : le bouton « Partager le lien », l'affichage/édition de `trip.description`, **et l'ancien mode admin par code secret `SRAPIX`** (`AdminLock` / `AdminModeProvider` / `constants/admin.ts` supprimés). L'édition est désormais pilotée par l'**authentification** (voir ci-dessous).
 
-## Deux modes (visualisation / admin)
+## Comptes & accès (remplace l'ancien « mode admin »)
 
-- **Visualisation** (par défaut, desktop **et** mobile) : lecture seule. Clic sur un marqueur/étape → **modale de détail** en lecture seule. Aucun bouton d'ajout/suppression.
-- **Admin** : édition partout (desktop et mobile). Déverrouillé par un **cadenas** (`AdminLock`) + saisie du code `SRAPIX` (`src/shared/constants/admin.ts`). État `isAdmin` persisté dans `localStorage` (clé `trip-visualizer.admin`) via `AdminModeProvider` (`src/presentation/mode/`).
-- ⚠️ Le code est une **barrière côté client uniquement** (pas d'auth serveur) : empêche l'édition accidentelle, pas un utilisateur déterminé.
+- **Authentification** email/mot de passe (pas d'OAuth). Chaque personne a un compte : `name`, `email`, `avatar?` (photo base64), `country?`. Session par **cookie HttpOnly** (`bv_session`, 30 j), pas de token en localStorage. Provider global `AuthProvider` (`src/presentation/auth/`, hook `useAuth`).
+- **Un voyage a un propriétaire** (`ownerId`) et des **membres invités par email** (compte existant **ou non**). Plus de code secret : on invite un email → un **lien `/invite/:token`** est créé (envoyé par email si configuré) → l'invité **accepte/refuse**. Tout membre accepté est **éditeur** (pas de rôle lecteur). Les **acceptés** vivent dans `trip_members`, les **invitations en attente** dans `trip_invites` (clé = email + token).
+- **Emails d'invitation** *pluggable* (`server/email.ts`) : sans config → provider **console** (log + le lien reste copiable dans l'UI, parfait self-host) ; avec `RESEND_API_KEY` → **Resend** (API HTTP, zéro dépendance). Env : `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`. `emailEnabled` indique au client s'il faut afficher le lien manuellement.
+- **Accès (`TripAccess`)** résolu **côté serveur** et renvoyé au client : `owner` / `editor` (= édition, ancienne « vue admin ») ou `public` (= **vue affichage**, lecture seule). `TripAccessProvider` (`src/presentation/mode/`, hook `useTripAccess` → `{ access, canEdit }`) remplace `useAdminMode`. **Le prop `isAdmin` des composants = `canEdit`** (nom conservé pour limiter la casse).
+- **Voyage public** (réglage propriétaire `isPublic`) : consultable **sans compte** via `/trip/:id`. ⚠️ Le serveur **retire les infos confidentielles** (`stripConfidential` : `stage.confidential` / `place.confidential`) pour tout accès `public` — le filtrage n'est **plus** seulement côté client.
 
 ## Stack
 
@@ -20,7 +22,9 @@ App web pour visualiser un voyage (Japon) sur une carte : étapes ordonnées (nu
 - **Responsive** : mobile (<768px) = **lecture seule** (`MobileTripView`), tablette et + = éditable (`useIsMobile`).
 - Autocomplétion adresses : **Nominatim** (OSM), gratuit, sans clé (`src/infrastructure/geocoding/nominatim.ts`)
 - Back : **Express + `node:sqlite`** (SQLite embarqué dans Node 24, aucun module natif à compiler), exécuté via **tsx** (pas de compilation JS du serveur)
-- Le voyage complet est stocké **en document JSON** dans une seule table `trips` (pas de modèle relationnel éclaté)
+- **Auth** : hash mot de passe via **`node:crypto` scrypt** (pas de `bcrypt` natif), sessions par cookie HttpOnly, parsing cookie maison (aucune dépendance ajoutée). CORS avec `credentials: true` ; le client HTTP envoie `credentials: 'include'`.
+- Le voyage est stocké **en document JSON** dans la table `trips`, avec **colonnes dédiées** `owner_id` + `is_public` (le JSON = *contenu* seul). Tables `users`, `sessions`, `trip_members` (membres **acceptés**), `trip_invites` (invitations par email : `token, trip_id, email`, `UNIQUE(trip_id,email)`). Migration auto : `ALTER TABLE trips ADD COLUMN owner_id/is_public` si absentes.
+- **Emails** : `server/email.ts` (Resend via `fetch` ou fallback console). Aucune dépendance npm ajoutée.
 
 ## Commandes
 
@@ -32,22 +36,29 @@ App web pour visualiser un voyage (Japon) sur une carte : étapes ordonnées (nu
 ## Structure DDD
 
 ```
-shared/types/trip.ts          # Types partagés front/back (Trip, Stage, Place, Accommodation, Transport)
-server/                       # Backend (db, repository JSON, routes, defaultTrip)
+shared/types/trip.ts          # Types voyage (Trip, Stage, Place, Accommodation, Transport, TripAccess, TripEnvelope)
+shared/types/user.ts          # Types comptes (User, PublicUser, RegisterInput, TripMembers, Invitation…)
+server/                       # Backend : db, repository (trips), auth (comptes/sessions), membership, routes, defaultTrip
 src/domain/trip/              # repositories/ (interface), services/ (factory + mutations pures)
-src/application/              # (réservé aux use cases — actuellement le repo suffit)
-src/infrastructure/          # http/ (client centralisé), trip/ (HttpTripRepository), geocoding/
-src/presentation/            # pages/, components/ (map, panels, details, ui), hooks/, mode/, theme/, types.ts
+src/domain/auth/              # AuthRepository (interface)
+src/domain/membership/        # MembershipRepository (interface)
+src/application/              # (réservé aux use cases — actuellement les repos suffisent)
+src/infrastructure/          # http/ (client centralisé), trip/, auth/, membership/, geocoding/
+src/presentation/            # pages/, components/, hooks/, auth/ (AuthProvider), mode/ (TripAccessProvider), theme/, types.ts
 ```
 
-- `presentation/mode/AdminModeProvider.tsx` : contexte du mode admin (`useAdminMode`).
-- `presentation/components/details/` : vues **lecture seule** partagées modale + mobile (`StageDetail`, `PlaceDetail`, `LegDetail`, `TransportsDetail`, `parts.tsx` = `AccommodationBlock`/`PlaceLine`/`InfoLine`/`MapsLink`/`DetailHeader`).
-- `presentation/components/panels/` : éditeurs (formulaires, mode admin) + `DetailModal` (aiguilleur visu/admin).
+- `presentation/auth/AuthProvider.tsx` : session utilisateur globale (`useAuth` → `user, loading, register/login/logout/updateProfile`).
+- `presentation/mode/TripAccessProvider.tsx` : accès au voyage courant (`useTripAccess` → `{ access, canEdit }`). Posé par `TripPage` autour de la sidebar/mobile.
+- `presentation/components/auth/` : `RequireAuth` (garde de route), `AvatarUpload` (photo → base64). `components/UserMenu.tsx` : avatar → Profil / Déconnexion. `components/ui/Avatar.tsx` : photo + repli initiales.
+- `presentation/components/trip/TripSettingsModal.tsx` : réglages voyage (public/privé + invitations/membres).
+- `presentation/components/details/` : vues **lecture seule** partagées modale + mobile (`StageDetail`, `PlaceDetail`, `LegDetail`, `parts.tsx` = `AccommodationBlock`/`PlaceLine`/`InfoLine`/`MapsLink`/`DetailHeader`).
+- `presentation/components/panels/` : éditeurs (formulaires) + `DetailModal` (aiguilleur visu/admin).
 
 ## Domaine `trip`
 
 ### Entités (`shared/types/trip.ts`)
-- **Trip** : `id, title, description?, stages[], transports[], createdAt, updatedAt`
+- **Trip** : `id, title, description?, outboundFlight?, stages[], returnFlight?, ownerId, isPublic, createdAt, updatedAt` — `ownerId`/`isPublic` viennent des **colonnes** (injectés à la lecture), **jamais** modifiés via l'autosave.
+- **TripAccess** = `'owner' | 'editor' | 'public'`. **TripEnvelope** = `{ trip, access }` (réponse de `GET /trips/:id`).
 - **Stage** (étape/nuit) : `id, name, color, emoji?, accommodation?, places[], transportToNext?, notes?, imageUrl?, confidential?` — `transportToNext` = jambe de trajet vers l'étape suivante ; `emoji?` s'affiche dans le marqueur (sinon le numéro) ; `imageUrl` = photo ; `confidential` = infos visibles admin uniquement
 - **Accommodation** : `name, address?, location?{lat,lng}, googleMapsUrl?, checkInDate?, checkOutDate?, arrivalTime?, departureTime?, modalities?, price?, currency?, persons?, notes?` — `price/currency` = coût du séjour (agrégé dans le budget) ; `persons?` = nb de personnes couvertes par le prix (défaut 1, sert au budget par personne)
 - **Place** (lieu satellite) : `id, name, category, address?, location?, googleMapsUrl?, notes?, visited, reserved?, price?, currency?, persons?, plannedDate?, plannedTime?, imageUrl?, confidential?` — `reserved?` = billet pris (mis en avant : bordure ambre + badge 🎟️ dans toutes les listes/détails) ; `price/currency/persons` = coût (budget, catégorie **Lieux**) ; `plannedDate/plannedTime` = créneau prévu → **tri chronologique** des lieux (`sortPlacesChronologically`) ; `imageUrl` = photo ; `confidential` = infos visibles admin uniquement (`ConfidentialBlock`)
@@ -55,10 +66,29 @@ src/presentation/            # pages/, components/ (map, panels, details, ui), h
 - **Flight** (`trip.outboundFlight?` / `trip.returnFlight?`) : `airport?, airportLocation?, date?, legs[], price?, currency?, persons?, notes?`. `airport(Location)` = aéroport du **pays visité** affiché sur la carte (arrivée pour l'aller, départ pour le retour).
 - **FlightLeg** (segment / correspondance) : `id, flightNumber?, from?, to?, departureTime?, arrivalTime?`
 - ⚠️ Le système de « trajets libres » (`trip.transports[]`, `TransportPanel`, « Autres trajets ») a été **supprimé** au profit des vols aller/retour.
-- `TripInput = Omit<Trip,'id'|'createdAt'|'updatedAt'>`
+- `TripInput = Omit<Trip,'id'|'createdAt'|'updatedAt'|'ownerId'|'isPublic'>` (le PUT autosave ne touche que le contenu ; `ownerId`/`isPublic` sont gérés par le serveur).
+- **TripSummary** : `id, title, updatedAt, stageCount, owned, isPublic` (`owned` = l'utilisateur courant est propriétaire).
 
 ### Repository (`src/domain/trip/repositories/TripRepository.ts`)
-`list()`, `getById(id)`, `create(input?)`, `update(id, input)`, `remove(id)`. Impl HTTP : `src/infrastructure/trip/HttpTripRepository.ts` (instance `tripRepository`).
+`list()`, `getById(id) → TripEnvelope`, `create(input?)`, `update(id, input)`, `remove(id)`, `setPublic(id, isPublic)`. Impl HTTP : `src/infrastructure/trip/HttpTripRepository.ts` (instance `tripRepository`).
+
+## Domaines `auth` & `membership`
+
+### Types (`shared/types/user.ts`)
+- **User** : `id, email, name, country?, avatar?, createdAt` — `avatar` = **data URL base64** (photo redimensionnée client via `fileToResizedDataUrl`, `src/shared/lib/image.ts`, ~256px JPEG). **PublicUser** = `id, email, name, avatar?`.
+- **TripMembers** = `{ owner: PublicUser, members: { user, status }[] }`. **Invitation** = `{ tripId, tripTitle, owner }`.
+
+- **TripMembers** = `{ owner: PublicUser, members: PublicUser[], pendingInvites: string[] }` (emails en attente). **InviteInfo** = `{ tripId, tripTitle, owner, email }` (résolu depuis un token). **InviteResponse** = `{ members, inviteUrl, emailSent }`.
+
+### Repositories
+- `AuthRepository` (`domain/auth/`, impl `infrastructure/auth/`, instance `authRepository`) : `me() → User|null`, `register`, `login`, `logout`, `updateProfile(patch)`.
+- `MembershipRepository` (`domain/membership/`, impl `infrastructure/membership/`, instance `membershipRepository`) : `getMembers`, `invite(tripId, email) → InviteResponse`, `cancelInvite(tripId, email)`, `removeMember(tripId, userId)`, `listInvitations`/`acceptInvitation(tripId)`/`declineInvitation(tripId)` (bannière, par email), `getInvite(token)`/`acceptInvite(token) → {tripId}`/`declineInvite(token)` (lien email).
+
+### Backend (`server/`)
+- `auth.ts` : scrypt (`hashPassword`/`verifyPassword`), `createUser/authenticate/updateUserProfile`, sessions (`issueSession`/`clearSession`), middlewares `withUser` (attache `req.user` sans bloquer) + `requireAuth` (401). `isFirstUser()` sert au **rattachement des voyages orphelins** (`claimOrphanTrips`) au 1er compte créé.
+- `membership.ts` : `resolveAccess(tripId, userId) → TripAccess|null` (source de vérité des permissions), `canEdit`, `getMembers`, `createInvite` (upsert token, réutilisé si déjà invité), `getInviteByToken`, `listInvitationsForEmail`, `acceptInvitation(tripId, {id,email})` (bannière, match email) / `declineInvitation`, `acceptInviteByToken(token, userId)` (lien = **capacité**, rattache l'utilisateur connecté quel que soit son email) / `declineInviteByToken`, `cancelInvite`, `removeMember`.
+- `email.ts` : `sendInvitationEmail` (ne jette pas), `emailEnabled`, `appUrl(origin)` (`APP_URL` sinon origine requête).
+- `repository.ts` : `stripConfidential(trip)`, `listTripsForUser`, `setTripPublic`, `claimOrphanTrips`, `getTripMeta` (owner/public sans désérialiser tout).
 
 ### Services domaine (purs, renvoient un nouveau Trip)
 - `tripFactory.ts` : `createStage(index)`, `createPlace(name?)`, `createTransport()`, `createFlight()`, `createFlightLeg()`
@@ -68,29 +98,47 @@ src/presentation/            # pages/, components/ (map, panels, details, ui), h
 
 | Méthode | Route | Description |
 |--------|-------|-------------|
-| GET | `/api/trips` | Liste résumée (`TripSummary[]`) |
-| POST | `/api/trips` | Crée un voyage. Body vide → voyage d'exemple (`server/defaultTrip.ts`) |
-| GET | `/api/trips/:id` | Récupère un voyage complet |
-| PUT | `/api/trips/:id` | Remplace les données (autosave). Conserve `id/createdAt` |
-| DELETE | `/api/trips/:id` | Supprime |
+| POST | `/api/auth/register` | Crée un compte (`{email,password,name,country?,avatar?}`) + session. 1er compte → rattache les voyages orphelins |
+| POST | `/api/auth/login` | Connexion → cookie de session |
+| POST | `/api/auth/logout` | Supprime la session |
+| GET | `/api/auth/me` | Utilisateur courant (401 si non connecté) |
+| PATCH | `/api/auth/me` | Met à jour le profil (`name/country/avatar/password`) |
+| GET | `/api/trips` | **[auth]** Voyages possédés + partagés (`TripSummary[]`) |
+| POST | `/api/trips` | **[auth]** Crée (owner = moi). Body vide → voyage d'exemple |
+| GET | `/api/trips/:id` | Renvoie `{ trip, access }`. Membre → complet ; `public` → **confidentiel retiré** ; sinon 401/404 |
+| PUT | `/api/trips/:id` | **[canEdit]** Autosave du contenu (conserve `owner_id/is_public/id/createdAt`) |
+| PATCH | `/api/trips/:id/settings` | **[owner]** `{isPublic}` |
+| DELETE | `/api/trips/:id` | **[owner]** Supprime |
+| GET | `/api/trips/:id/members` | **[canEdit]** `TripMembers` (owner + membres + emails en attente) |
+| POST | `/api/trips/:id/invite` | **[canEdit]** Invite par `{email}` (compte **ou non**) → `InviteResponse` `{members, inviteUrl, emailSent}`. Envoie l'email si configuré |
+| DELETE | `/api/trips/:id/invites` | **[owner]** Annule une invitation en attente (`{email}`) |
+| DELETE | `/api/trips/:id/members/:userId` | Retire un membre (**owner**) ou se retire soi-même |
+| GET | `/api/invites/:token` | **Ouvert** — `InviteInfo` (page /invite/:token, pré-remplit l'inscription) |
+| POST | `/api/invites/:token/accept` \| `/decline` | **[auth]** Rejoint via le lien (token = capacité) / refuse |
+| GET | `/api/me/invitations` | **[auth]** Invitations en attente pour **mon email** (`Invitation[]`) |
+| POST | `/api/me/invitations/:tripId/accept` \| `/decline` | **[auth]** Accepte / refuse (match email) |
 
 ## Routes front (`src/App.tsx`)
 
 | Route | Page | Rôle |
 |-------|------|------|
-| `/` | `HomePage` | Liste + création de voyages. **Suppression réservée à l'admin** (`isAdmin`, bouton masqué sinon) |
-| `/trip/:id` | `TripPage` | Vue carte + sidebar (ou liste mobile) + modale de détail/édition |
+| `/login` \| `/register` | `AuthPage mode=…` | Connexion / création de compte (redirige si déjà connecté ; pré-remplit `email` + `from` via `location.state` depuis une invitation) |
+| `/invite/:token` | `InvitePage` | **Ouvert** — atterrissage d'un lien d'invitation. Connecté → accepter/refuser ; sinon → CTA inscription (email pré-rempli) puis retour |
+| `/profil` | `ProfilePage` | **[RequireAuth]** Édite nom/pays/photo/mot de passe |
+| `/` | `HomePage` | **[RequireAuth]** Voyages possédés+partagés + **invitations en attente**. Suppression = **propriétaire** (`trip.owned`) |
+| `/trip/:id` | `TripPage` | **Ouvert** (un voyage public est consultable sans compte). Vue carte + sidebar/mobile + tiroirs/modale |
 
 ## Hooks (`src/presentation/hooks/`)
 
 | Hook | Rôle |
 |------|------|
-| `useTrip(id)` | Charge le voyage, expose `mutate(updater)` + `saveStatus`. **Autosave débouncé 700 ms** + flush sur `beforeunload` |
+| `useTrip(id)` | Charge le voyage → `{ trip, access, mutate, setTrip, saveStatus }`. **Autosave débouncé 700 ms** + flush sur `beforeunload`. `setTrip` = remplacement local (ex. après changement de réglage) |
 | `useDebouncedValue(value, ms)` | Débounce générique |
 | `useGeocodeSearch(query)` | Autocomplétion Nominatim débouncée (400 ms) + annulable (AbortController) |
-| `useMediaQuery(q)` / `useIsMobile()` | Réactif au resize ; `useIsMobile` = `(max-width: 767px)` → choisit le **layout** (liste vs sidebar). **N'autorise plus l'édition** : c'est `isAdmin` qui décide |
+| `useMediaQuery(q)` / `useIsMobile()` | Réactif au resize ; `useIsMobile` = `(max-width: 767px)` → choisit le **layout** (liste vs sidebar). **N'autorise plus l'édition** : c'est `canEdit` qui décide |
 | `useTheme()` (`ThemeProvider`) | Thème clair/sombre, persisté, applique la classe `dark` |
-| `useAdminMode()` (`AdminModeProvider`) | `{ isAdmin, unlock(code), lock() }`. Persisté localStorage. `unlock` renvoie `true` si le code = `SRAPIX` |
+| `useAuth()` (`AuthProvider`) | `{ user, loading, register, login, logout, updateProfile }`. Session résolue au montage via `GET /auth/me` |
+| `useTripAccess()` (`TripAccessProvider`) | `{ access, canEdit }` pour le voyage courant. `canEdit = access ∈ {owner, editor}`. Remplace `useAdminMode` |
 
 ## Patterns & conventions
 
@@ -128,7 +176,9 @@ src/presentation/            # pages/, components/ (map, panels, details, ui), h
 - **Lieu sélectionné dans la liste d'étape** : en vue par étape, le lieu ouvert dans le tiroir enfant est **surligné bleu** dans la liste. `DetailContent` calcule `selectedPlaceId` (depuis `childSelection`) et le passe à `StageDetail`/`StageEditor` → `PlaceLine selected` (parts.tsx, `border-primary bg-primary/5`, prioritaire sur le liseré ambre « réservé »).
 - **Un seul bouton Maps** : dans les détails (`PlaceDetail`, `AccommodationBlock`, mobile `PlaceContent`/hébergement), on garde uniquement `MapsSearchButton` (recherche Maps sur l'**adresse**) ; le lien `googleMapsUrl` (`MapsLink`/« Ouvrir le lien ») a été retiré des détails (conservé dans les listes `PlaceLine`/`PlaceCard`).
 - **Blocs de texte aérés (lecture)** : `NoteText` (`details/parts.tsx`, icône `lucide` + texte multiligne, `null` si vide) pour éviter les gros pavés en mode visuel. Utilisé pour notes/modalités/notes de vol dans `AccommodationBlock`/`StageDetail`/`PlaceDetail`/`LegDetail`/`FlightDetail` (icônes `StickyNote`, `KeyRound` pour modalités). Équivalent mobile = `SheetNote` (`MobileTripView`, style `rounded-xl`). Les **descriptions** de voyage (sidebar desktop + sheet mobile) sont préfixées d'un `Info`.
-- **Informations confidentielles** : `place.confidential` / `stage.confidential`. Saisies via un `Textarea` 🔒 dans les éditeurs. Affichées par `ConfidentialBlock` (`details/`) qui **s'auto-protège** via `useAdminMode` : rendu **uniquement si `isAdmin`** (code saisi), invisible sinon. Placé dans `PlaceDetail`/`StageDetail` + mobiles `PlaceContent`/`StageContent`.
+- **Informations confidentielles** : `place.confidential` / `stage.confidential`. Saisies via un `Textarea` 🔒 dans les éditeurs. Affichées par `ConfidentialBlock` (`details/`) qui **s'auto-protège** via `useTripAccess` : rendu **uniquement si `canEdit`** (membre/propriétaire). ⚠️ **Défense en profondeur** : pour un accès `public`, le **serveur** ne renvoie déjà plus ces champs (`stripConfidential`) — le garde client n'a plus de secret à cacher. Placé dans `PlaceDetail`/`StageDetail` + mobiles `PlaceContent`/`StageContent`.
+- **Comptes & permissions** : `AuthProvider` (global) résout la session ; `TripPage` pose `TripAccessProvider access={…}` (venu de `useTrip().access`) autour de la sidebar/mobile → `canEdit` remplace l'ancien `isAdmin` **partout** (le prop garde le nom `isAdmin` dans les composants profonds). Boutons **Réglages** (`Settings`) et **Budget** visibles `canEdit` seulement. `UserMenu` (avatar) dans la sidebar/barre mobile + `HomePage`. `TripSettingsModal` = bascule public/privé (owner) + invitations/membres. Avatar uploadé → base64 (`AvatarUpload` + `fileToResizedDataUrl`).
+- **Invitation par email** : `TripSettingsModal` invite un email → `InviteResponse` ; on affiche membres acceptés + **invitations en attente** (emails, annulables par l'owner) + un **lien copiable** (toujours, indispensable en mode console). Page `/invite/:token` (`InvitePage`) : résout le token (public), puis accepte/refuse si connecté, sinon renvoie vers `/register` (email + `from` pré-remplis via `location.state`). Deux canaux d'acceptation : **par token** (lien, capacité) et **par email** (bannière `HomePage` = `/me/invitations`, match sur l'email du compte).
 - **Bascule Vue par étape / Vue par jour** (`viewMode: 'stages' | 'days'` dans `TripPage`, persisté `localStorage` `trip-visualizer.viewMode`). Un bouton **CalendarDays « Vue par jour » / List « Vue par étape »** (sidebar desktop + barre mobile) bascule et **vide la pile** de sélection. `buildItinerary(trip)` (`src/shared/lib/itinerary.ts`) → `DaySummary[]` (une entrée par jour entre min/max des dates : `stage` base `checkIn ≤ jour < checkOut`, `arrival/departureStage`, `flights`, `legs`, `places`).
   - **Vue par jour = même système de tiroirs/sheet** : la liste (sidebar `DayList` / rail mobile) montre les **jours** ; cliquer un jour → sélection `{kind:'day', date}`. Contenu = `DayDetail` (desktop, `panels/`) / `DayContent` (mobile) : un **programme chronologique** unique fusionnant vols + **transports (= « étapes à faire dans la journée »)** + lieux, trié par heure. **Trajets (vols/transports) = variant `travel`** stylés en **bordure pointillée** (`border-dashed`, distincts des lieux ; pas de couleur de fond). Libellé d'un trajet = `étape → étape suivante` (jamais `leg.label`, qui reste « Nouveau trajet » car non éditable). L'**hébergement (« Nuit ») est affiché en fin de journée**, pas au début. Lignes en `break-words` (cliquables même en tiroir étroit). Chaque item **empile un tiroir** via `onPush` (desktop) ou navigue le sheet (mobile).
   - `Selection` inclut `{kind:'day'}`. `TripPage.pushFrom(index, sel)` = `[...stack.slice(0, index+1), sel]` → ouvre `sel` comme **enfant** du tiroir source en **remplaçant** ce qui était au-dessus (⇒ **un seul lieu ouvert à la fois** depuis une journée). Chaque `DetailDrawer` reçoit `onPush={(s)=>pushFrom(i, s)}` ; si `s` est un lieu, la carte **auto-focus** dessus (`focusPlace`).
@@ -149,3 +199,10 @@ src/presentation/            # pages/, components/ (map, panels, details, ui), h
 - ⚠️ **`npm start` a besoin de `tsx`** (dép. de dev) au runtime : l'image Docker copie tout `node_modules` depuis l'étape build.
 - ⚠️ **`FitBounds`** ne recadre qu'au **changement de `trip.id`** (pas à chaque édition), sinon la carte saute pendant qu'on édite.
 - Le voyage est un **blob JSON** : pas de requêtes SQL par sous-entité. Toute évolution du modèle est rétro-compatible tant qu'on gère les champs optionnels/absents.
+- ⚠️ **`owner_id`/`is_public` = colonnes, pas dans le JSON** : le contenu (blob) et les métadonnées d'accès sont séparés. `rowToTrip` réinjecte `ownerId`/`isPublic` depuis les colonnes ; `updateTrip` (PUT autosave) **ne touche jamais** ces colonnes (settings via `PATCH …/settings`). Le client exclut ces champs de `TripInput` (`toInput` dans `useTrip`).
+- ⚠️ **Permissions = serveur** : `resolveAccess`/`canEdit` (`membership.ts`) sont la **seule** source de vérité. Le front (`canEdit`) est purement UX. Ne jamais se reposer sur le client pour cacher du confidentiel → toujours passer par `stripConfidential` côté serveur pour l'accès `public`.
+- ⚠️ **Cookies de session** : `credentials: 'include'` (client) + `cors({ credentials: true })` (serveur) sont **obligatoires** ensemble. Cookie `HttpOnly`, `secure` en production seulement (sinon bloqué en dev http). Parsing cookie fait main dans `auth.ts` (pas de `cookie-parser`).
+- ⚠️ **Avatars base64** : `express.json({ limit: '6mb' })` (relevé de 2mb) pour encaisser la photo en data URL. `AvatarUpload` redimensionne à ~256px avant envoi ; ne pas retirer cette compression sinon payloads énormes.
+- ⚠️ **Rattachement des orphelins** : `claimOrphanTrips` ne s'exécute qu'au **1er `register`** (`isFirstUser()` avant insertion). Les voyages créés avant l'auth (`owner_id IS NULL`) reviennent à ce compte. Un self-host qui repart de zéro n'est pas concerné.
+- ⚠️ **Emails optionnels** : `sendInvitationEmail` **ne jette jamais** (un échec de mail n'annule pas l'invitation). Sans `RESEND_API_KEY`, `emailEnabled=false` → le front **doit** montrer `inviteUrl` (sinon l'invité n'a aucun moyen de rejoindre). Toujours renvoyer `inviteUrl` dans `InviteResponse`.
+- ⚠️ **`APP_URL` pour les liens d'email** : en dev on retombe sur l'origine de la requête (`http://localhost:5173`) ; en prod, **définir `APP_URL`** (l'origine derrière un reverse-proxy peut être fausse). Le token d'invitation est une **capacité** (`/invites/:token/accept` rattache l'utilisateur connecté quel que soit son email) — ne pas logguer le lien ailleurs que console/email.

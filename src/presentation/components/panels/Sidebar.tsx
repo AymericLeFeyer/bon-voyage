@@ -1,6 +1,16 @@
 import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarDays, Check, Cloud, CloudOff, List, Loader2, Plus, Wallet } from 'lucide-react';
+import {
+  CalendarDays,
+  Check,
+  Cloud,
+  CloudOff,
+  List,
+  Loader2,
+  Plus,
+  Settings,
+  Wallet,
+} from 'lucide-react';
 import type { Flight, Trip } from '@shared/types/trip';
 import { TRANSPORT_MODES } from '@/shared/constants/catalog';
 import { createStage, createTransport } from '@/domain/trip/services/tripFactory';
@@ -13,8 +23,8 @@ import type { SaveStatus } from '@/presentation/hooks/useTrip';
 import type { Selection } from '@/presentation/types';
 import { cn } from '@/shared/lib/cn';
 import { Button } from '../ui/Button';
-import { AdminLock } from '../AdminLock';
 import { ThemeToggle } from '../ThemeToggle';
+import { UserMenu } from '../UserMenu';
 import { BudgetModal } from './BudgetModal';
 
 interface SidebarProps {
@@ -25,6 +35,7 @@ interface SidebarProps {
   viewMode: 'stages' | 'days';
   mutate: (updater: (trip: Trip) => Trip) => void;
   onToggleView: () => void;
+  onOpenSettings: () => void;
   onSelectStage: (stageId: string) => void;
   onSelectLeg: (stageId: string) => void;
   onSelectFlight: (side: FlightSide) => void;
@@ -95,6 +106,7 @@ export function Sidebar({
   viewMode,
   mutate,
   onToggleView,
+  onOpenSettings,
   onSelectStage,
   onSelectLeg,
   onSelectFlight,
@@ -122,8 +134,18 @@ export function Sidebar({
           </Link>
           <div className="flex items-center gap-1">
             {isAdmin && <SaveIndicator status={saveStatus} />}
-            <AdminLock />
+            {isAdmin && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Paramètres du voyage"
+                onClick={onOpenSettings}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            )}
             <ThemeToggle />
+            <UserMenu />
           </div>
         </div>
         {isAdmin ? (

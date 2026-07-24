@@ -7,7 +7,9 @@ import type { FlightSide } from '@/domain/trip/services/tripMutations';
 import { createFlight } from '@/domain/trip/services/tripFactory';
 import { useTrip } from '@/presentation/hooks/useTrip';
 import { useIsMobile } from '@/presentation/hooks/useMediaQuery';
-import { useAdminMode } from '@/presentation/mode/AdminModeProvider';
+import { tripRepository } from '@/infrastructure/trip/HttpTripRepository';
+import { TripAccessProvider } from '@/presentation/mode/TripAccessProvider';
+import { TripSettingsModal } from '@/presentation/components/trip/TripSettingsModal';
 import { deriveMapSelection, type PlacingTarget, type Selection } from '@/presentation/types';
 import { Sidebar } from '@/presentation/components/panels/Sidebar';
 import { DetailModal } from '@/presentation/components/panels/DetailModal';
@@ -17,9 +19,15 @@ import { MobileTripView } from './MobileTripView';
 
 export function TripPage() {
   const { id = '' } = useParams();
-  const { trip, loading, loadError, saveStatus, mutate } = useTrip(id);
+  const { trip, access, loading, loadError, saveStatus, mutate, setTrip } = useTrip(id);
   const isMobile = useIsMobile();
-  const { isAdmin } = useAdminMode();
+  const canEdit = access === 'owner' || access === 'editor';
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const setPublic = async (isPublic: boolean) => {
+    const updated = await tripRepository.setPublic(id, isPublic);
+    setTrip(updated);
+  };
 
   // Vue par étape (défaut) ou par jour. Persisté.
   const [viewMode, setViewMode] = useState<'stages' | 'days'>(
@@ -77,7 +85,7 @@ export function TripPage() {
   const selectFlight = (side: FlightSide) => {
     // En admin, créer le vol à la volée s'il n'existe pas encore.
     const exists = side === 'outbound' ? trip?.outboundFlight : trip?.returnFlight;
-    if (isAdmin && !exists) mutate((t) => setFlight(t, side, createFlight()));
+    if (canEdit && !exists) mutate((t) => setFlight(t, side, createFlight()));
     setStack([{ kind: 'flight', side }]);
   };
   const selectDay = (date: string) => {
@@ -157,12 +165,25 @@ export function TripPage() {
     </div>
   );
 
+  const resolvedAccess = access ?? 'public';
+
+  const settingsModal = (
+    <TripSettingsModal
+      open={settingsOpen}
+      onClose={() => setSettingsOpen(false)}
+      tripId={trip.id}
+      access={resolvedAccess}
+      isPublic={trip.isPublic}
+      onSetPublic={setPublic}
+    />
+  );
+
   if (isMobile) {
     return (
-      <>
+      <TripAccessProvider access={resolvedAccess}>
         <MobileTripView
           trip={trip}
-          isAdmin={isAdmin}
+          isAdmin={canEdit}
           saveStatus={saveStatus}
           mapSelection={mapSelection}
           placingMode={placingTarget !== null}
@@ -170,6 +191,7 @@ export function TripPage() {
           viewMode={viewMode}
           mutate={mutate}
           onToggleView={toggleView}
+          onOpenSettings={() => setSettingsOpen(true)}
           onSelectStage={selectStage}
           onSelectPlace={selectPlace}
           onSelectLeg={selectLeg}
@@ -180,7 +202,7 @@ export function TripPage() {
         <DetailModal
           trip={trip}
           selection={selection}
-          isAdmin={isAdmin}
+          isAdmin={canEdit}
           placingTarget={placingTarget}
           mutate={mutate}
           setPlacingTarget={setPlacingTarget}
@@ -189,26 +211,29 @@ export function TripPage() {
           onFocus={focusOnMap}
           onClose={clearSelection}
         />
+        {settingsModal}
         {placementBanner}
-      </>
+      </TripAccessProvider>
     );
   }
 
   return (
-    <div className="flex h-full">
-      <Sidebar
-        trip={trip}
-        selection={rootSelection}
-        saveStatus={saveStatus}
-        isAdmin={isAdmin}
-        viewMode={viewMode}
-        mutate={mutate}
-        onToggleView={toggleView}
-        onSelectStage={selectStageFromList}
-        onSelectLeg={selectLeg}
-        onSelectFlight={selectFlight}
-        onSelectDay={selectDay}
-      />
+    <TripAccessProvider access={resolvedAccess}>
+      <div className="flex h-full">
+        <Sidebar
+          trip={trip}
+          selection={rootSelection}
+          saveStatus={saveStatus}
+          isAdmin={canEdit}
+          viewMode={viewMode}
+          mutate={mutate}
+          onToggleView={toggleView}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onSelectStage={selectStageFromList}
+          onSelectLeg={selectLeg}
+          onSelectFlight={selectFlight}
+          onSelectDay={selectDay}
+        />
 
       {/* Desktop : tiroirs empilés redimensionnables. Bornés en largeur (scroll
           horizontal interne) pour toujours laisser ~260px de carte cliquable. */}
@@ -219,7 +244,7 @@ export function TripPage() {
               key={i}
               trip={trip}
               selection={sel}
-              isAdmin={isAdmin}
+              isAdmin={canEdit}
               placingTarget={placingTarget}
               mutate={mutate}
               setPlacingTarget={setPlacingTarget}
@@ -255,7 +280,9 @@ export function TripPage() {
         />
       </main>
 
-      {placementBanner}
-    </div>
+        {settingsModal}
+        {placementBanner}
+      </div>
+    </TripAccessProvider>
   );
 }

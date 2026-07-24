@@ -155,8 +155,26 @@ export interface Trip {
   stages: Stage[];
   /** Vol de retour (après la dernière étape). */
   returnFlight?: Flight;
+  /** Propriétaire du voyage (créateur). Géré côté serveur, non éditable via autosave. */
+  ownerId: string;
+  /** Voyage rendu public (vue affichage sans infos confidentielles). Réglage propriétaire. */
+  isPublic: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Niveau d'accès du visiteur courant à un voyage.
+ * - `owner`  : propriétaire (édition + réglages + suppression)
+ * - `editor` : membre accepté (édition)
+ * - `public` : non-membre consultant un voyage public (vue affichage, lecture seule, sans confidentiel)
+ */
+export type TripAccess = 'owner' | 'editor' | 'public';
+
+/** Réponse de récupération d'un voyage : le voyage + l'accès du visiteur. */
+export interface TripEnvelope {
+  trip: Trip;
+  access: TripAccess;
 }
 
 /** Vue résumée d'un voyage (liste sur la page d'accueil). */
@@ -165,7 +183,13 @@ export interface TripSummary {
   title: string;
   updatedAt: string;
   stageCount: number;
+  /** true si l'utilisateur courant est le propriétaire de ce voyage. */
+  owned: boolean;
+  isPublic: boolean;
 }
 
-/** Payload accepté pour créer/mettre à jour un voyage. */
-export type TripInput = Omit<Trip, 'id' | 'createdAt' | 'updatedAt'>;
+/**
+ * Payload accepté pour créer/mettre à jour le *contenu* d'un voyage.
+ * `ownerId`/`isPublic` sont gérés par le serveur (colonnes dédiées), jamais via l'autosave.
+ */
+export type TripInput = Omit<Trip, 'id' | 'createdAt' | 'updatedAt' | 'ownerId' | 'isPublic'>;

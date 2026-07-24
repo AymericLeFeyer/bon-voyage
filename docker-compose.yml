@@ -12,3 +12,8 @@ services:
       - NODE_ENV=production
       - PORT=42069
       - DATABASE_PATH=/app/data/trips.db
+      # --- Emails d'invitation (optionnel) ---
+      # Sans ces variables : mode "console" (lien d'invitation copiable dans l'UI).
+      # - APP_URL=https://voyage.votre-domaine.com
+      # - RESEND_API_KEY=re_xxxxxxxxxxxx
+      # - EMAIL_FROM=Bon Voyage <invitations@votre-domaine.com>

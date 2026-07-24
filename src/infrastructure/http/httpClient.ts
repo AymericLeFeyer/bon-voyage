@@ -15,6 +15,7 @@ export class HttpError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include', // cookie de session (auth)
     ...init,
   });
 
@@ -39,5 +40,8 @@ export const httpClient = {
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
-  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
+  delete: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined }),
 };
