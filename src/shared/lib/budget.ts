@@ -1,28 +1,15 @@
 import type { Trip } from '@shared/types/trip';
 import { travelCopy } from '@/shared/constants/travel';
+import { BASE_CURRENCY, formatAmount, normalizeCurrency } from '@/shared/constants/currency';
 
 /** Catégories de dépense agrégées dans la page stats. */
 export type BudgetCategory = 'flights' | 'accommodation' | 'transport' | 'places';
 
-/** Devise de référence : tous les totaux sont exprimés en euros. */
-export const BASE_CURRENCY = '€';
-
 /**
- * Taux de change saisis par l'utilisateur : nombre d'unités de la devise pour
- * 1 €. Les devises absentes sont traitées comme des équivalents euro.
+ * Taux de change appliqués : nombre d'unités de la devise pour 1 €. Les devises
+ * sans taux connu sont traitées comme des équivalents euro.
  */
 export type Rates = Record<string, number>;
-
-/** Taux indicatifs proposés par défaut (modifiables dans la page budget). */
-export const DEFAULT_RATES: Rates = { '¥': 165, $: 1.08, '£': 0.85 };
-
-/** Symbole → code ISO, pour le formatage `Intl`. */
-const CURRENCY_CODES: Record<string, string> = {
-  '€': 'EUR',
-  $: 'USD',
-  '£': 'GBP',
-  '¥': 'JPY',
-};
 
 export interface BudgetLine {
   category: BudgetCategory;
@@ -56,8 +43,9 @@ export interface BudgetBreakdown {
  * taux connu est traitée comme un équivalent euro.
  */
 export function toEur(amount: number, currency: string | undefined, rates: Rates): number {
-  if (!currency || currency === BASE_CURRENCY) return amount;
-  const rate = rates[currency];
+  const code = normalizeCurrency(currency);
+  if (code === BASE_CURRENCY) return amount;
+  const rate = rates[code];
   return rate != null && rate > 0 ? amount / rate : amount;
 }
 
@@ -72,7 +60,8 @@ export function computeBudget(trip: Trip, rates: Rates): BudgetBreakdown {
     persons: number | undefined,
   ) => {
     if (price == null || Number.isNaN(price)) return;
-    const cur = currency ?? BASE_CURRENCY;
+    // Les anciens voyages stockent un symbole : on range tout en code ISO.
+    const cur = normalizeCurrency(currency);
     const eur = toEur(price, cur, rates);
     const pers = persons != null && persons > 0 ? persons : 1;
     lines.push({ category, label, amount: price, currency: cur, persons: pers, eur, eurPerPerson: eur / pers });
@@ -138,30 +127,12 @@ export function computeBudget(trip: Trip, rates: Rates): BudgetBreakdown {
   };
 }
 
-const formatters = new Map<string, Intl.NumberFormat>();
-
-function formatter(code: string): Intl.NumberFormat {
-  let f = formatters.get(code);
-  if (!f) {
-    f = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: code, maximumFractionDigits: 0 });
-    formatters.set(code, f);
-  }
-  return f;
-}
-
-/** Formate un montant dans la devise donnée (symbole libre accepté). */
-export function formatMoney(amount: number, currency: string): string {
-  const code = CURRENCY_CODES[currency];
-  if (code) return formatter(code).format(amount);
-  return `${Math.round(amount).toLocaleString('fr-FR')} ${currency}`;
-}
-
 export function formatEur(amount: number): string {
-  return formatMoney(amount, BASE_CURRENCY);
+  return formatAmount(amount, BASE_CURRENCY);
 }
 
 /** Convertit un montant en euros vers une devise étrangère (pour l'affichage « ≈ »). */
 export function fromEur(amountEur: number, currency: string, rates: Rates): number {
-  const rate = rates[currency];
+  const rate = rates[normalizeCurrency(currency)];
   return rate != null && rate > 0 ? amountEur * rate : amountEur;
 }

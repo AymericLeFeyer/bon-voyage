@@ -18,6 +18,7 @@ import { distanceLabel } from '@/shared/lib/geo';
 import { formatLongDate, formatPlanned } from '@/shared/lib/date';
 import { mapsSearchUrl } from '@/shared/lib/maps';
 import { cn } from '@/shared/lib/cn';
+import { formatAmount } from '@/shared/constants/currency';
 import { Button } from '../ui/Button';
 
 /** Bouton ouvrant Google Maps sur l'adresse/le nom (recherche, sans clé). */
@@ -109,7 +110,7 @@ export function ReservedBadge() {
 /** Formate un prix + devise pour l'affichage (défaut €). */
 export function formatPrice(price?: number, currency?: string): string | null {
   if (price == null) return null;
-  return `${price}${currency ?? '€'}`;
+  return formatAmount(price, currency);
 }
 
 /**
@@ -196,7 +197,7 @@ export function AccommodationBlock({ acc }: { acc: Accommodation }) {
           .join(' · ')}
       </IconLine>
       <IconLine icon={Wallet} title="Prix">
-        {acc.price != null && `${acc.price}${acc.currency ?? '€'}`}
+        {acc.price != null && formatAmount(acc.price, acc.currency)}
       </IconLine>
       <NoteText icon={KeyRound}>{acc.modalities}</NoteText>
       <NoteText>{acc.notes}</NoteText>

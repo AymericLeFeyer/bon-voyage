@@ -12,6 +12,7 @@ import {
 import type { Stage } from '@shared/types/trip';
 import { TRANSPORT_MODES } from '@/shared/constants/catalog';
 import { formatLongDate } from '@/shared/lib/date';
+import { formatAmount } from '@/shared/constants/currency';
 import { DetailHeader, IconLine, NoteText } from './parts';
 
 interface LegDetailProps {
@@ -55,7 +56,7 @@ export function LegDetail({ stage, nextStage, onFocus, onClose }: LegDetailProps
         </IconLine>
         <IconLine icon={Hash} title="Référence">{leg.reference}</IconLine>
         <IconLine icon={Wallet} title="Prix">
-          {leg.price != null && `${leg.price}${leg.currency ?? '€'}`}
+          {leg.price != null && formatAmount(leg.price, leg.currency)}
         </IconLine>
         <NoteText>{leg.notes}</NoteText>
       </div>

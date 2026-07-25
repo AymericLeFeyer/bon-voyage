@@ -1,7 +1,8 @@
 import type { Transport } from '@shared/types/trip';
+import { formatAmount } from '@/shared/constants/currency';
 
 /**
- * Résumé compact d'un transport : « 320 km · 09:12–11:30 · 89€ ».
+ * Résumé compact d'un transport : « 320 km · 09:12–11:30 · 89 € ».
  * Utilisé par la sidebar, la vue mobile et les vues détail.
  */
 export function formatTransportSummary(t: Transport): string {
@@ -10,6 +11,6 @@ export function formatTransportSummary(t: Transport): string {
   if (t.departureTime || t.arrivalTime) {
     parts.push([t.departureTime, t.arrivalTime].filter(Boolean).join('–'));
   }
-  if (t.price != null) parts.push(`${t.price}${t.currency ?? '€'}`);
+  if (t.price != null) parts.push(formatAmount(t.price, t.currency));
   return parts.join(' · ');
 }

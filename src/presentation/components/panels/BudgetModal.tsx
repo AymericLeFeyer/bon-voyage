@@ -3,13 +3,17 @@ import type { Trip } from '@shared/types/trip';
 import {
   computeBudget,
   formatEur,
-  formatMoney,
   fromEur,
-  DEFAULT_RATES,
   type BudgetCategory,
   type Rates,
 } from '@/shared/lib/budget';
 import { travelCopy } from '@/shared/constants/travel';
+import {
+  currencySymbol,
+  formatAmount,
+  normalizeCurrency,
+  DEFAULT_RATES,
+} from '@/shared/constants/currency';
 import { Modal } from '../ui/Modal';
 import { DetailHeader } from '../details/parts';
 import { Input } from '../ui/Input';
@@ -22,12 +26,13 @@ function loadRates(): Rates {
   if (typeof localStorage === 'undefined') return { ...DEFAULT_RATES };
   const rates: Rates = { ...DEFAULT_RATES };
   const legacy = Number(localStorage.getItem(LEGACY_JPY_KEY));
-  if (Number.isFinite(legacy) && legacy > 0) rates['¥'] = legacy;
+  if (Number.isFinite(legacy) && legacy > 0) rates.JPY = legacy;
   try {
     const raw = localStorage.getItem(RATES_KEY);
     if (raw) {
       for (const [currency, value] of Object.entries(JSON.parse(raw) as Rates)) {
-        if (Number.isFinite(value) && value > 0) rates[currency] = value;
+        // Les taux enregistrés avant les codes ISO étaient indexés par symbole.
+        if (Number.isFinite(value) && value > 0) rates[normalizeCurrency(currency)] = value;
       }
     }
   } catch {
@@ -72,7 +77,7 @@ export function BudgetModal({ trip, open, onClose }: BudgetModalProps) {
   // étrangère est utilisée (sinon la conversion n'aurait pas de sens).
   const secondary = budget.foreignCurrencies.length === 1 ? budget.foreignCurrencies[0] : null;
   const approx = (eur: number) =>
-    secondary ? `≈ ${formatMoney(fromEur(eur, secondary, rates), secondary)}` : null;
+    secondary ? `≈ ${formatAmount(fromEur(eur, secondary, rates), secondary)}` : null;
 
   const updateRate = (currency: string, value: number) => {
     setRates((current) => {
@@ -97,7 +102,7 @@ export function BudgetModal({ trip, open, onClose }: BudgetModalProps) {
               <div className="min-w-0">
                 <div className="text-sm font-medium">Taux de change</div>
                 <p className="text-xs text-muted-foreground">
-                  Utilisé pour convertir {currency} ↔ €.
+                  Utilisé pour convertir {currency} ↔ EUR.
                 </p>
               </div>
               <div className="flex items-center gap-1.5 whitespace-nowrap text-sm">
@@ -111,7 +116,9 @@ export function BudgetModal({ trip, open, onClose }: BudgetModalProps) {
                   className="w-24 text-right"
                   onChange={(e) => updateRate(currency, Number(e.target.value))}
                 />
-                <span>{currency}</span>
+                <span>
+                  {currency} {currencySymbol(currency)}
+                </span>
               </div>
             </div>
           ))}
@@ -183,7 +190,9 @@ export function BudgetModal({ trip, open, onClose }: BudgetModalProps) {
                           )}
                         </span>
                         <span className="shrink-0 tabular-nums">
-                          {perPerson ? formatEur(line.eurPerPerson) : `${line.amount}${line.currency}`}
+                          {perPerson
+                            ? formatEur(line.eurPerPerson)
+                            : formatAmount(line.amount, line.currency)}
                         </span>
                       </li>
                     ))}

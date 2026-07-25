@@ -44,9 +44,6 @@ export const STAGE_EMOJIS = [
   '🌊',
 ];
 
-/** Devises proposées (l'euro sert de devise de référence pour le budget). */
-export const CURRENCIES = ['€', '$', '£', '¥'];
-
 /** Palette d'accents proposée pour les étapes. */
 export const STAGE_COLORS = [
   '#e11d48',

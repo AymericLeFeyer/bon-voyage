@@ -23,6 +23,7 @@ import { createStage, createTransport } from '@/domain/trip/services/tripFactory
 import { addStage, setTransportLeg, updatePlace } from '@/domain/trip/services/tripMutations';
 import type { FlightSide } from '@/domain/trip/services/tripMutations';
 import { travelCopy, type TravelCopy } from '@/shared/constants/travel';
+import { formatAmount } from '@/shared/constants/currency';
 import { formatTransportSummary } from '@/shared/lib/transport';
 import { formatLongDate, formatPlanned, formatShortDate, nightsLabel } from '@/shared/lib/date';
 import { sortPlacesChronologically } from '@/shared/lib/place';
@@ -167,7 +168,7 @@ function PlaceCard({
 }) {
   const cat = PLACE_CATEGORIES[place.category];
   const distance = distanceLabel(origin, place.location);
-  const price = place.price != null ? `${place.price}${place.currency ?? '€'}` : null;
+  const price = place.price != null ? formatAmount(place.price, place.currency) : null;
   const planned = formatPlanned(place.plannedDate, place.plannedTime);
   return (
     <div
@@ -309,8 +310,7 @@ function StageContent({
           )}
           {acc.price != null && (
             <div className="text-xs text-muted-foreground">
-              Prix : {acc.price}
-              {acc.currency ?? '€'}
+              Prix : {formatAmount(acc.price, acc.currency)}
             </div>
           )}
           {acc.modalities && (
@@ -450,7 +450,7 @@ function PlaceContent({
             {cat.label}
             {planned && ` · 🕒 ${planned}`}
             {distance && ` · ${distance} de l'hébergement`}
-            {place.price != null && ` · ${place.price}${place.currency ?? '€'}`}
+            {place.price != null && ` · ${formatAmount(place.price, place.currency)}`}
             {place.visited && ' · déjà visité'}
           </p>
         </div>
@@ -550,8 +550,7 @@ function FlightContent({
 
       {flight.price != null && (
         <p className="text-sm text-muted-foreground">
-          Prix : {flight.price}
-          {flight.currency ?? '€'}
+          Prix : {formatAmount(flight.price, flight.currency)}
         </p>
       )}
       <SheetNote icon={StickyNote}>{flight.notes}</SheetNote>

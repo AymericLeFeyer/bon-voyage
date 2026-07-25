@@ -2,6 +2,7 @@ import type { Flight } from '@shared/types/trip';
 import type { FlightSide } from '@/domain/trip/services/tripMutations';
 import type { TravelCopy } from '@/shared/constants/travel';
 import { formatLongDate } from '@/shared/lib/date';
+import { formatAmount } from '@/shared/constants/currency';
 import { DetailHeader, InfoLine, NoteText } from './parts';
 
 interface FlightDetailProps {
@@ -49,7 +50,7 @@ export function FlightDetail({ side, flight, copy, onFocus, onClose }: FlightDet
         )}
 
         <InfoLine label="Prix">
-          {flight.price != null && `${flight.price}${flight.currency ?? '€'}`}
+          {flight.price != null && formatAmount(flight.price, flight.currency)}
         </InfoLine>
         <NoteText>{flight.notes}</NoteText>
       </div>

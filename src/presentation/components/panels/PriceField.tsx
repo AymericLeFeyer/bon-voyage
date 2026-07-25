@@ -1,4 +1,4 @@
-import { CURRENCIES } from '@/shared/constants/catalog';
+import { BASE_CURRENCY, CURRENCIES, normalizeCurrency } from '@/shared/constants/currency';
 import { Field } from '../ui/Field';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
@@ -7,7 +7,7 @@ interface PriceFieldProps {
   price?: number;
   currency?: string;
   persons?: number;
-  /** Devise par défaut si aucune n'est saisie (l'euro sert de référence au budget). */
+  /** Devise par défaut si aucune n'est saisie (code ISO ; l'euro sert de référence au budget). */
   defaultCurrency?: string;
   /** Libellé du champ prix. */
   label?: string;
@@ -23,7 +23,7 @@ export function PriceField({
   price,
   currency,
   persons,
-  defaultCurrency = '€',
+  defaultCurrency = BASE_CURRENCY,
   label = 'Prix à prévoir',
   onChange,
 }: PriceFieldProps) {
@@ -42,13 +42,13 @@ export function PriceField({
             }
           />
           <Select
-            value={currency ?? defaultCurrency}
-            className="w-20"
+            value={normalizeCurrency(currency ?? defaultCurrency)}
+            className="w-28"
             onChange={(e) => onChange({ currency: e.target.value })}
           >
             {CURRENCIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
+              <option key={c.code} value={c.code}>
+                {c.code} {c.symbol}
               </option>
             ))}
           </Select>
