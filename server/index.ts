@@ -37,7 +37,7 @@ import {
   removeMember,
   resolveAccess,
 } from './membership.ts';
-import { appUrl, emailEnabled, sendInvitationEmail } from './email.ts';
+import { appUrl, emailEnabled, logEmailConfig, sendInvitationEmail } from './email.ts';
 import { claimOrphanTrips } from './repository.ts';
 import { buildDefaultTrip } from './defaultTrip.ts';
 import type { TripInput, TripSummary } from '../shared/types/trip.ts';
@@ -309,4 +309,5 @@ if (process.env.NODE_ENV === 'production') {
 
 app.listen(PORT, () => {
   console.log(`🧭  Bon Voyage API sur http://localhost:${PORT}`);
+  logEmailConfig();
 });

@@ -7,8 +7,17 @@
  * Variables d'env : RESEND_API_KEY, EMAIL_FROM, APP_URL.
  */
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const EMAIL_FROM = process.env.EMAIL_FROM ?? 'Bon Voyage <onboarding@resend.dev>';
+/**
+ * Lecture d'une variable d'env : une variable *déclarée mais vide* (cas courant
+ * en Docker/Portainer, `- RESEND_API_KEY=${RESEND_API_KEY:-}`) vaut « absente ».
+ */
+function env(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+const RESEND_API_KEY = env('RESEND_API_KEY');
+const EMAIL_FROM = env('EMAIL_FROM') ?? 'Bon Voyage <onboarding@resend.dev>';
 
 interface EmailMessage {
   to: string;
@@ -67,12 +76,21 @@ const provider: EmailProvider = RESEND_API_KEY
 /** true si un vrai fournisseur est configuré (sinon : afficher le lien dans l'UI). */
 export const emailEnabled = provider.name !== 'console';
 
+/** Trace au démarrage : indispensable pour diagnostiquer un env non transmis. */
+export function logEmailConfig(): void {
+  console.log(
+    emailEnabled
+      ? `📧 Emails : provider=${provider.name}, from=${EMAIL_FROM}`
+      : '📧 Emails : provider=console (RESEND_API_KEY absente du process) — le lien d’invitation reste copiable dans l’UI',
+  );
+}
+
 /**
  * Base URL publique pour construire les liens des emails.
  * `APP_URL` (recommandé en SaaS/prod) sinon on retombe sur l'origine de la requête.
  */
 export function appUrl(requestOrigin?: string): string {
-  return (process.env.APP_URL ?? requestOrigin ?? 'http://localhost:5173').replace(/\/$/, '');
+  return (env('APP_URL') ?? requestOrigin ?? 'http://localhost:5173').replace(/\/$/, '');
 }
 
 /** Email d'invitation à un voyage. Ne jette pas : un échec n'annule pas l'invitation. */
