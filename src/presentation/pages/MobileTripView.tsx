@@ -22,6 +22,7 @@ import { PLACE_CATEGORIES, TRANSPORT_MODES } from '@/shared/constants/catalog';
 import { createStage, createTransport } from '@/domain/trip/services/tripFactory';
 import { addStage, setTransportLeg, updatePlace } from '@/domain/trip/services/tripMutations';
 import type { FlightSide } from '@/domain/trip/services/tripMutations';
+import { travelCopy, type TravelCopy } from '@/shared/constants/travel';
 import { formatTransportSummary } from '@/shared/lib/transport';
 import { formatLongDate, formatPlanned, formatShortDate, nightsLabel } from '@/shared/lib/date';
 import { sortPlacesChronologically } from '@/shared/lib/place';
@@ -495,12 +496,15 @@ function PlaceContent({
 function FlightContent({
   side,
   flight,
+  copy,
   isAdmin,
   onEdit,
   onFocus,
 }: {
   side: FlightSide;
   flight: Flight;
+  /** Libellés du mode de trajet du voyage (avion ou train). */
+  copy: TravelCopy;
   isAdmin: boolean;
   onEdit: () => void;
   onFocus: (location?: LatLng) => void;
@@ -509,12 +513,10 @@ function FlightContent({
     <div className="space-y-4">
       <div className="flex items-start gap-3">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-2xl">
-          ✈️
+          {copy.emoji}
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-bold leading-tight">
-            {side === 'outbound' ? 'Vol aller' : 'Vol retour'}
-          </h2>
+          <h2 className="text-lg font-bold leading-tight">{copy.label[side]}</h2>
           {flight.airport && (
             <p className="truncate text-xs text-muted-foreground">{flight.airport}</p>
           )}
@@ -523,7 +525,7 @@ function FlightContent({
           <button
             onClick={onEdit}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-muted"
-            title="Éditer le vol"
+            title={copy.editLabel}
           >
             <Pencil className="h-4 w-4" />
           </button>
@@ -574,14 +576,16 @@ function DayContent({
   onFocus: (location?: LatLng) => void;
 }) {
   const day = buildItinerary(trip).find((d) => d.date === date);
+  // `day.flights` est vide quand le mode de trajet est « non défini ».
+  const travel = travelCopy(trip);
 
   const program = (day
     ? [
         ...day.flights.map((f) => ({
           key: `flight-${f.side}`,
           time: f.flight.legs[0]?.departureTime,
-          emoji: '✈️',
-          label: f.side === 'outbound' ? 'Vol aller' : 'Vol retour',
+          emoji: travel?.emoji ?? '✈️',
+          label: travel?.label[f.side] ?? 'Trajet',
           travel: true,
           onClick: () => onOpenFlight(f.side),
         })),
@@ -714,13 +718,15 @@ export function MobileTripView({
   >(focusTarget);
 
   const days = useMemo(() => buildItinerary(trip), [trip]);
+  // `null` = mode de trajet « non défini » → pas d'entrée aller/retour.
+  const travel = travelCopy(trip);
 
   const defaultActive = useMemo<Active>(() => {
     if (viewMode === 'days') return days[0] ? { type: 'day', date: days[0].date } : null;
     if (trip.stages[0]) return { type: 'stage', id: trip.stages[0].id };
-    if (trip.outboundFlight) return { type: 'flight', side: 'outbound' };
+    if (travel && trip.outboundFlight) return { type: 'flight', side: 'outbound' };
     return null;
-  }, [viewMode, days, trip.stages, trip.outboundFlight]);
+  }, [viewMode, days, trip.stages, trip.outboundFlight, travel]);
   const [active, setActive] = useState<Active>(defaultActive);
 
   // Au changement de vue (jour ↔ étape), repartir sur l'élément par défaut.
@@ -942,12 +948,12 @@ export function MobileTripView({
               ))
             ) : (
               <>
-                {(trip.outboundFlight || isAdmin) && (
+                {travel && (trip.outboundFlight || isAdmin) && (
                   <RailPill
                     active={active?.type === 'flight' && active.side === 'outbound'}
                     onClick={() => pickFlight('outbound')}
                   >
-                    ✈️ Aller
+                    {travel.emoji} Aller
                   </RailPill>
                 )}
                 {trip.stages.map((s, i) => (
@@ -964,12 +970,12 @@ export function MobileTripView({
                     {s.name}
                   </RailPill>
                 ))}
-                {(trip.returnFlight || isAdmin) && (
+                {travel && (trip.returnFlight || isAdmin) && (
                   <RailPill
                     active={active?.type === 'flight' && active.side === 'return'}
                     onClick={() => pickFlight('return')}
                   >
-                    ✈️ Retour
+                    {travel.emoji} Retour
                   </RailPill>
                 )}
                 {isAdmin && (
@@ -1023,8 +1029,9 @@ export function MobileTripView({
             }
             onFocus={(loc) => focusOnMap(loc)}
           />
-        ) : activeFlight && active?.type === 'flight' ? (
+        ) : activeFlight && travel && active?.type === 'flight' ? (
           <FlightContent
+            copy={travel}
             side={active.side}
             flight={activeFlight}
             isAdmin={isAdmin}

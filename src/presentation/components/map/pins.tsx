@@ -60,14 +60,14 @@ export function PlacePin({
   );
 }
 
-/** Marqueur d'aéroport (vol aller/retour), affiché au bout du voyage. */
-export function FlightPin({ selected }: { selected: boolean }) {
+/** Marqueur du point d'entrée/sortie (aéroport ou gare), au bout du voyage. */
+export function FlightPin({ emoji, selected }: { emoji: string; selected: boolean }) {
   return (
     <div
       className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-white text-base shadow-md"
       style={{ boxShadow: selected ? '0 0 0 3px rgba(59,130,246,0.45)' : undefined }}
     >
-      ✈️
+      {emoji}
     </div>
   );
 }

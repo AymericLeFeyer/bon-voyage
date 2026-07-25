@@ -12,6 +12,7 @@ import { TripAccessProvider } from '@/presentation/mode/TripAccessProvider';
 import { TripSettingsModal } from '@/presentation/components/trip/TripSettingsModal';
 import { DeleteTripDialog } from '@/presentation/components/trip/DeleteTripDialog';
 import { deriveMapSelection, type PlacingTarget, type Selection } from '@/presentation/types';
+import { resolveTravelMode } from '@/shared/constants/travel';
 import { Sidebar } from '@/presentation/components/panels/Sidebar';
 import { DetailModal } from '@/presentation/components/panels/DetailModal';
 import { DetailDrawer } from '@/presentation/components/panels/DetailDrawer';
@@ -91,8 +92,10 @@ export function TripPage() {
   };
   const selectLeg = (stageId: string) => setStack([{ kind: 'leg', stageId }]);
   const selectFlight = (side: FlightSide) => {
-    // En admin, créer le vol à la volée s'il n'existe pas encore.
-    const exists = side === 'outbound' ? trip?.outboundFlight : trip?.returnFlight;
+    // Mode de trajet « non défini » : pas d'aller/retour dans ce voyage.
+    if (!trip || resolveTravelMode(trip) === 'none') return;
+    // En admin, créer le trajet à la volée s'il n'existe pas encore.
+    const exists = side === 'outbound' ? trip.outboundFlight : trip.returnFlight;
     if (canEdit && !exists) mutate((t) => setFlight(t, side, createFlight()));
     setStack([{ kind: 'flight', side }]);
   };

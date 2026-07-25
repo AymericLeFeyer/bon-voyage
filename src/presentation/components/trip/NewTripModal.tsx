@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Loader2, Plus, X } from 'lucide-react';
-import type { LatLng, Trip } from '@shared/types/trip';
+import type { LatLng, TravelMode, Trip } from '@shared/types/trip';
 import type { GeoSuggestion } from '@/infrastructure/geocoding/nominatim';
 import { tripRepository } from '@/infrastructure/trip/HttpTripRepository';
 import { flagEmoji } from '@/shared/lib/flag';
@@ -11,6 +11,7 @@ import { Button } from '@/presentation/components/ui/Button';
 import { Input } from '@/presentation/components/ui/Input';
 import { Field } from '@/presentation/components/ui/Field';
 import { EmojiPicker } from './EmojiPicker';
+import { TravelModePicker } from './TravelModePicker';
 
 interface NewTripModalProps {
   open: boolean;
@@ -18,12 +19,16 @@ interface NewTripModalProps {
   onCreated: (trip: Trip) => void;
 }
 
-/** Création d'un voyage : on demande le nom, la destination et un emoji (drapeau du pays). */
+/**
+ * Création d'un voyage : on demande le nom, la destination, un emoji (drapeau
+ * du pays) et le mode de trajet aller/retour (avion, train ou non défini).
+ */
 export function NewTripModal({ open, onClose, onCreated }: NewTripModalProps) {
   const [title, setTitle] = useState('');
   const [destination, setDestination] = useState('');
   const [location, setLocation] = useState<LatLng | undefined>(undefined);
   const [emoji, setEmoji] = useState('');
+  const [travelMode, setTravelMode] = useState<TravelMode>('plane');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +38,7 @@ export function NewTripModal({ open, onClose, onCreated }: NewTripModalProps) {
     setDestination('');
     setLocation(undefined);
     setEmoji('');
+    setTravelMode('plane');
     setError(null);
   }, [open]);
 
@@ -58,6 +64,7 @@ export function NewTripModal({ open, onClose, onCreated }: NewTripModalProps) {
         emoji: emoji.trim() || undefined,
         destination: destination.trim() || undefined,
         destinationLocation: location,
+        travelMode,
         stages: [],
       });
       onCreated(trip);
@@ -102,6 +109,10 @@ export function NewTripModal({ open, onClose, onCreated }: NewTripModalProps) {
               onChange={(e) => setTitle(e.target.value)}
             />
           </div>
+        </Field>
+
+        <Field label="Trajet aller / retour">
+          <TravelModePicker value={travelMode} onChange={setTravelMode} />
         </Field>
 
         {error && <p className="text-xs text-red-600">{error}</p>}

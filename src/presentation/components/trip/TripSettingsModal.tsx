@@ -7,6 +7,7 @@ import { HttpError } from '@/infrastructure/http/httpClient';
 import { patchTrip } from '@/domain/trip/services/tripMutations';
 import { shortPlaceLabel } from '@/shared/lib/place';
 import { flagEmoji } from '@/shared/lib/flag';
+import { resolveTravelMode } from '@/shared/constants/travel';
 import { AddressAutocomplete } from '@/presentation/components/AddressAutocomplete';
 import { Modal } from '@/presentation/components/ui/Modal';
 import { Button } from '@/presentation/components/ui/Button';
@@ -14,6 +15,7 @@ import { Input } from '@/presentation/components/ui/Input';
 import { Field } from '@/presentation/components/ui/Field';
 import { Avatar } from '@/presentation/components/ui/Avatar';
 import { EmojiPicker } from './EmojiPicker';
+import { TravelModePicker } from './TravelModePicker';
 
 interface TripSettingsModalProps {
   open: boolean;
@@ -143,6 +145,16 @@ export function TripSettingsModal({
                   );
                 }}
               />
+            </Field>
+
+            <Field label="Trajet aller / retour">
+              <TravelModePicker
+                value={resolveTravelMode(trip)}
+                onChange={(travelMode) => mutate((t) => patchTrip(t, { travelMode }))}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                « Non défini » masque les entrées aller / retour du voyage.
+              </p>
             </Field>
           </section>
         )}

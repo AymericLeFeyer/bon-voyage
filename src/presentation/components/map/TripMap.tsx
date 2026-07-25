@@ -3,6 +3,7 @@ import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
 import type { FeatureCollection, LineString } from 'geojson';
 import type { LatLng, Trip } from '@shared/types/trip';
 import { PLACE_CATEGORIES, TRANSPORT_MODES } from '@/shared/constants/catalog';
+import { travelCopy } from '@/shared/constants/travel';
 import type { FlightSide } from '@/domain/trip/services/tripMutations';
 import { useTheme } from '@/presentation/theme/ThemeProvider';
 import { FlightPin, LegPin, PlacePin, StagePin } from './pins';
@@ -28,18 +29,19 @@ interface TripMapProps {
   onMapClick: (location: LatLng) => void;
 }
 
-const JAPAN_VIEW = { longitude: 138.2529, latitude: 36.2048, zoom: 5 };
+/** Vue par défaut : le monde, tant qu'aucun point ni destination n'est connu. */
+const WORLD_VIEW = { longitude: 10, latitude: 30, zoom: 1.4 };
 
-function collectPoints(trip: Trip): LatLng[] {
+function collectPoints(trip: Trip, withTravel: boolean): LatLng[] {
   const points: LatLng[] = [];
-  if (trip.outboundFlight?.airportLocation) points.push(trip.outboundFlight.airportLocation);
+  if (withTravel && trip.outboundFlight?.airportLocation) points.push(trip.outboundFlight.airportLocation);
   for (const stage of trip.stages) {
     if (stage.accommodation?.location) points.push(stage.accommodation.location);
     for (const place of stage.places) {
       if (place.location) points.push(place.location);
     }
   }
-  if (trip.returnFlight?.airportLocation) points.push(trip.returnFlight.airportLocation);
+  if (withTravel && trip.returnFlight?.airportLocation) points.push(trip.returnFlight.airportLocation);
   return points;
 }
 
@@ -63,14 +65,16 @@ export function TripMap({
 }: TripMapProps) {
   const { theme } = useTheme();
   const mapRef = useRef<MapRef>(null);
-  const points = useMemo(() => collectPoints(trip), [trip]);
+  // `null` = mode de trajet « non défini » → ni marqueur ni extrémité de tracé.
+  const travel = travelCopy(trip);
+  const points = useMemo(() => collectPoints(trip, travel !== null), [trip, travel]);
 
   // Itinéraire ordonné : aéroport d'aller → nuits → aéroport de retour.
   const routeData = useMemo<FeatureCollection<LineString>>(() => {
     const ordered: (LatLng | undefined)[] = [
-      trip.outboundFlight?.airportLocation,
+      travel ? trip.outboundFlight?.airportLocation : undefined,
       ...trip.stages.map((s) => s.accommodation?.location),
-      trip.returnFlight?.airportLocation,
+      travel ? trip.returnFlight?.airportLocation : undefined,
     ];
     const coords = ordered
       .filter((l): l is LatLng => Boolean(l))
@@ -82,7 +86,7 @@ export function TripMap({
           ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }]
           : [],
     };
-  }, [trip.stages, trip.outboundFlight, trip.returnFlight]);
+  }, [trip.stages, trip.outboundFlight, trip.returnFlight, travel]);
 
   // Liens en pointillés entre chaque nuit et ses lieux satellites.
   const linkData = useMemo<FeatureCollection<LineString>>(() => {
@@ -170,7 +174,7 @@ export function TripMap({
   return (
     <Map
       ref={mapRef}
-      initialViewState={JAPAN_VIEW}
+      initialViewState={WORLD_VIEW}
       mapStyle={MAP_STYLE_URLS[theme]}
       cursor={placingMode ? 'crosshair' : undefined}
       style={{ width: '100%', height: '100%' }}
@@ -205,8 +209,8 @@ export function TripMap({
         />
       </Source>
 
-      {/* Aéroports des vols aller / retour (pays visité) */}
-      {(['outbound', 'return'] as const).map((side) => {
+      {/* Points d'entrée/sortie des trajets aller / retour (pays visité) */}
+      {travel && (['outbound', 'return'] as const).map((side) => {
         const flight = side === 'outbound' ? trip.outboundFlight : trip.returnFlight;
         const loc = flight?.airportLocation;
         if (!loc) return null;
@@ -221,7 +225,7 @@ export function TripMap({
               onSelectFlight(side);
             }}
           >
-            <FlightPin selected={selectedFlight === side} />
+            <FlightPin emoji={travel.emoji} selected={selectedFlight === side} />
           </Marker>
         );
       })}

@@ -10,6 +10,7 @@ import {
   type FlightSide,
 } from '@/domain/trip/services/tripMutations';
 import type { PlacingTarget } from '@/presentation/types';
+import type { TravelCopy } from '@/shared/constants/travel';
 import { cn } from '@/shared/lib/cn';
 import { Button } from '../ui/Button';
 import { Field } from '../ui/Field';
@@ -22,6 +23,8 @@ import { PriceField } from './PriceField';
 interface FlightEditorProps {
   side: FlightSide;
   flight: Flight;
+  /** Libellés du mode de trajet du voyage (avion ou train). */
+  copy: TravelCopy;
   placingTarget: PlacingTarget;
   mutate: (updater: (trip: Trip) => Trip) => void;
   setPlacingTarget: (target: PlacingTarget) => void;
@@ -29,19 +32,10 @@ interface FlightEditorProps {
   onClose: () => void;
 }
 
-const TITLE: Record<FlightSide, string> = {
-  outbound: '✈️ Vol aller',
-  return: '✈️ Vol retour',
-};
-
-const AIRPORT_LABEL: Record<FlightSide, string> = {
-  outbound: "Aéroport d'arrivée (pays visité)",
-  return: 'Aéroport de départ (pays visité)',
-};
-
 export function FlightEditor({
   side,
   flight,
+  copy,
   placingTarget,
   mutate,
   setPlacingTarget,
@@ -54,7 +48,7 @@ export function FlightEditor({
   return (
     <div className="flex min-h-0 flex-col">
       <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-        <h2 className="font-semibold">{TITLE[side]}</h2>
+        <h2 className="font-semibold">{copy.title[side]}</h2>
         <div className="flex items-center gap-1">
           {onFocus && <FocusButton onClick={onFocus} />}
           <Button variant="ghost" size="icon" onClick={onClose}>
@@ -65,14 +59,14 @@ export function FlightEditor({
 
       <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-4 scroll-thin">
         <p className="text-xs text-muted-foreground">
-          Seul l'aéroport du pays visité est affiché sur la carte.
+          {copy.mapHint}
         </p>
 
         <div className="space-y-2">
-          <Field label={AIRPORT_LABEL[side]}>
+          <Field label={copy.hubLabel[side]}>
             <AddressAutocomplete
               value={flight.airport ?? ''}
-              placeholder="Ex : Aéroport de Tokyo Narita"
+              placeholder={copy.hubPlaceholder}
               onChange={(text) => set({ airport: text })}
               onSelect={(s) => set({ airport: s.label, airportLocation: s.location })}
             />
@@ -109,7 +103,7 @@ export function FlightEditor({
         {/* --- Segments / correspondances --- */}
         <section className="space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Vols & correspondances ({flight.legs.length})</h3>
+            <h3 className="text-sm font-semibold">{copy.segmentsTitle} ({flight.legs.length})</h3>
             <Button
               size="sm"
               variant="secondary"
@@ -134,10 +128,10 @@ export function FlightEditor({
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              <Field label="N° de vol">
+              <Field label={copy.numberLabel}>
                 <Input
                   value={leg.flightNumber ?? ''}
-                  placeholder="Ex : AF276"
+                  placeholder={copy.numberPlaceholder}
                   onChange={(e) =>
                     mutate((t) => updateFlightLeg(t, side, leg.id, { flightNumber: e.target.value }))
                   }
@@ -147,7 +141,7 @@ export function FlightEditor({
                 <Field label="Départ">
                   <Input
                     value={leg.from ?? ''}
-                    placeholder="Aéroport / ville"
+                    placeholder={copy.endpointPlaceholder}
                     onChange={(e) =>
                       mutate((t) => updateFlightLeg(t, side, leg.id, { from: e.target.value }))
                     }
@@ -156,7 +150,7 @@ export function FlightEditor({
                 <Field label="Arrivée">
                   <Input
                     value={leg.to ?? ''}
-                    placeholder="Aéroport / ville"
+                    placeholder={copy.endpointPlaceholder}
                     onChange={(e) =>
                       mutate((t) => updateFlightLeg(t, side, leg.id, { to: e.target.value }))
                     }
@@ -205,7 +199,7 @@ export function FlightEditor({
         <Field label="Notes">
           <Textarea
             value={flight.notes ?? ''}
-            placeholder="Bagages, terminal, enregistrement…"
+            placeholder={copy.notesPlaceholder}
             onChange={(e) => set({ notes: e.target.value })}
           />
         </Field>
@@ -218,7 +212,7 @@ export function FlightEditor({
             onClose();
           }}
         >
-          <Trash2 className="h-4 w-4" /> Supprimer ce vol
+          <Trash2 className="h-4 w-4" /> {copy.removeLabel}
         </Button>
       </div>
     </div>

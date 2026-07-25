@@ -7,7 +7,7 @@ interface PriceFieldProps {
   price?: number;
   currency?: string;
   persons?: number;
-  /** Devise par défaut si aucune n'est saisie (¥ pour les transports, € sinon). */
+  /** Devise par défaut si aucune n'est saisie (l'euro sert de référence au budget). */
   defaultCurrency?: string;
   /** Libellé du champ prix. */
   label?: string;

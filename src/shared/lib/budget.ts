@@ -1,7 +1,28 @@
 import type { Trip } from '@shared/types/trip';
+import { travelCopy } from '@/shared/constants/travel';
 
 /** Catégories de dépense agrégées dans la page stats. */
 export type BudgetCategory = 'flights' | 'accommodation' | 'transport' | 'places';
+
+/** Devise de référence : tous les totaux sont exprimés en euros. */
+export const BASE_CURRENCY = '€';
+
+/**
+ * Taux de change saisis par l'utilisateur : nombre d'unités de la devise pour
+ * 1 €. Les devises absentes sont traitées comme des équivalents euro.
+ */
+export type Rates = Record<string, number>;
+
+/** Taux indicatifs proposés par défaut (modifiables dans la page budget). */
+export const DEFAULT_RATES: Rates = { '¥': 165, $: 1.08, '£': 0.85 };
+
+/** Symbole → code ISO, pour le formatage `Intl`. */
+const CURRENCY_CODES: Record<string, string> = {
+  '€': 'EUR',
+  $: 'USD',
+  '£': 'GBP',
+  '¥': 'JPY',
+};
 
 export interface BudgetLine {
   category: BudgetCategory;
@@ -25,62 +46,64 @@ export interface BudgetBreakdown {
   byCategoryPerPerson: Record<BudgetCategory, number>;
   totalEur: number;
   totalEurPerPerson: number;
-  totalJpy: number;
+  /** Devises étrangères réellement utilisées dans le voyage (hors €). */
+  foreignCurrencies: string[];
 }
-
-const YEN = '¥';
 
 /**
  * Convertit un montant vers l'euro (devise de base).
- * `rate` = nombre de yens pour 1 € (taux variable saisi par l'utilisateur).
- * Le voyage étant au Japon, seuls ¥ et € sont vraiment gérés ; les autres
- * devises sont traitées comme des équivalents euro (cas non réaliste ici).
+ * `rates[devise]` = nombre d'unités de cette devise pour 1 €. Une devise sans
+ * taux connu est traitée comme un équivalent euro.
  */
-export function toEur(amount: number, currency: string | undefined, rate: number): number {
-  if (currency === YEN) return rate > 0 ? amount / rate : 0;
-  return amount;
+export function toEur(amount: number, currency: string | undefined, rates: Rates): number {
+  if (!currency || currency === BASE_CURRENCY) return amount;
+  const rate = rates[currency];
+  return rate != null && rate > 0 ? amount / rate : amount;
 }
 
-/** Agrège tous les prix saisis (vols, hébergements, transports, lieux) en un budget. */
-export function computeBudget(trip: Trip, rate: number): BudgetBreakdown {
+/** Agrège tous les prix saisis (trajets, hébergements, transports, lieux) en un budget. */
+export function computeBudget(trip: Trip, rates: Rates): BudgetBreakdown {
   const lines: BudgetLine[] = [];
   const push = (
     category: BudgetCategory,
     label: string,
     price: number | undefined,
     currency: string | undefined,
-    defaultCurrency: string,
     persons: number | undefined,
   ) => {
     if (price == null || Number.isNaN(price)) return;
-    const cur = currency ?? defaultCurrency;
-    const eur = toEur(price, cur, rate);
+    const cur = currency ?? BASE_CURRENCY;
+    const eur = toEur(price, cur, rates);
     const pers = persons != null && persons > 0 ? persons : 1;
     lines.push({ category, label, amount: price, currency: cur, persons: pers, eur, eurPerPerson: eur / pers });
   };
 
-  if (trip.outboundFlight) {
-    const f = trip.outboundFlight;
-    push('flights', 'Vol aller', f.price, f.currency, '€', f.persons);
-  }
-  if (trip.returnFlight) {
-    const f = trip.returnFlight;
-    push('flights', 'Vol retour', f.price, f.currency, '€', f.persons);
+  // Trajets aller/retour : ignorés si le voyage est en mode « non défini ».
+  const travel = travelCopy(trip);
+  if (travel) {
+    if (trip.outboundFlight) {
+      const f = trip.outboundFlight;
+      push('flights', travel.label.outbound, f.price, f.currency, f.persons);
+    }
+    if (trip.returnFlight) {
+      const f = trip.returnFlight;
+      push('flights', travel.label.return, f.price, f.currency, f.persons);
+    }
   }
 
   trip.stages.forEach((stage, index) => {
     const acc = stage.accommodation;
-    if (acc) push('accommodation', acc.name || stage.name, acc.price, acc.currency, '€', acc.persons);
+    if (acc) push('accommodation', acc.name || stage.name, acc.price, acc.currency, acc.persons);
 
     const leg = stage.transportToNext;
     if (leg) {
       const next = trip.stages[index + 1];
       const label = next ? `${stage.name} → ${next.name}` : leg.label || `${stage.name} · transport`;
-      push('transport', label, leg.price, leg.currency, '¥', leg.persons);
+      push('transport', label, leg.price, leg.currency, leg.persons);
     }
 
     stage.places.forEach((place) => {
-      push('places', place.name, place.price, place.currency, '€', place.persons);
+      push('places', place.name, place.price, place.currency, place.persons);
     });
   });
 
@@ -101,26 +124,44 @@ export function computeBudget(trip: Trip, rate: number): BudgetBreakdown {
     byCategoryPerPerson[line.category] += line.eurPerPerson;
   }
 
+  const foreign = [...new Set(lines.map((l) => l.currency))].filter((c) => c !== BASE_CURRENCY);
+
   const totalEur = lines.reduce((sum, line) => sum + line.eur, 0);
   const totalEurPerPerson = lines.reduce((sum, line) => sum + line.eurPerPerson, 0);
-  return { lines, byCategory, byCategoryPerPerson, totalEur, totalEurPerPerson, totalJpy: totalEur * rate };
+  return {
+    lines,
+    byCategory,
+    byCategoryPerPerson,
+    totalEur,
+    totalEurPerPerson,
+    foreignCurrencies: foreign,
+  };
 }
 
-const eurFormat = new Intl.NumberFormat('fr-FR', {
-  style: 'currency',
-  currency: 'EUR',
-  maximumFractionDigits: 0,
-});
-const jpyFormat = new Intl.NumberFormat('fr-FR', {
-  style: 'currency',
-  currency: 'JPY',
-  maximumFractionDigits: 0,
-});
+const formatters = new Map<string, Intl.NumberFormat>();
+
+function formatter(code: string): Intl.NumberFormat {
+  let f = formatters.get(code);
+  if (!f) {
+    f = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: code, maximumFractionDigits: 0 });
+    formatters.set(code, f);
+  }
+  return f;
+}
+
+/** Formate un montant dans la devise donnée (symbole libre accepté). */
+export function formatMoney(amount: number, currency: string): string {
+  const code = CURRENCY_CODES[currency];
+  if (code) return formatter(code).format(amount);
+  return `${Math.round(amount).toLocaleString('fr-FR')} ${currency}`;
+}
 
 export function formatEur(amount: number): string {
-  return eurFormat.format(amount);
+  return formatMoney(amount, BASE_CURRENCY);
 }
 
-export function formatJpy(amount: number): string {
-  return jpyFormat.format(amount);
+/** Convertit un montant en euros vers une devise étrangère (pour l'affichage « ≈ »). */
+export function fromEur(amountEur: number, currency: string, rates: Rates): number {
+  const rate = rates[currency];
+  return rate != null && rate > 0 ? amountEur * rate : amountEur;
 }

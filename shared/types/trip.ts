@@ -92,7 +92,21 @@ export interface Stage {
   confidential?: string;
 }
 
-export type TransportMode = 'train' | 'shinkansen' | 'bus' | 'plane' | 'ferry' | 'car' | 'walk' | 'other';
+/**
+ * Moyen de transport d'une jambe de trajet.
+ * `shinkansen` est un **alias historique** de `highspeed` (données existantes) :
+ * il n'est plus proposé à la saisie mais reste affichable.
+ */
+export type TransportMode =
+  | 'train'
+  | 'highspeed'
+  | 'shinkansen'
+  | 'bus'
+  | 'plane'
+  | 'ferry'
+  | 'car'
+  | 'walk'
+  | 'other';
 
 /** Segment de transport (jambe entre deux étapes ou trajet libre). */
 export interface Transport {
@@ -118,10 +132,16 @@ export interface Transport {
   notes?: string;
 }
 
-/** Segment d'un vol (une correspondance = un segment supplémentaire). */
+/**
+ * Mode de trajet « bout de voyage » (aller/retour), choisi à la création.
+ * `none` = aucun trajet d'arrivée/départ n'est suivi dans l'app.
+ */
+export type TravelMode = 'plane' | 'train' | 'none';
+
+/** Segment d'un trajet aller/retour (une correspondance = un segment supplémentaire). */
 export interface FlightLeg {
   id: string;
-  /** Numéro de vol (ex. AF276). */
+  /** Numéro de vol / de train (ex. AF276, TGV 6201). */
   flightNumber?: string;
   from?: string;
   to?: string;
@@ -130,9 +150,10 @@ export interface FlightLeg {
 }
 
 /**
- * Vol d'aller ou de retour, traité comme une étape « bout de voyage ».
- * `airport`/`airportLocation` = l'aéroport du pays visité affiché sur la carte
- * (arrivée pour l'aller, départ pour le retour).
+ * Trajet d'aller ou de retour (avion ou train selon `Trip.travelMode`), traité
+ * comme une étape « bout de voyage ». `airport`/`airportLocation` = le point
+ * d'entrée/sortie du pays visité affiché sur la carte (aéroport ou gare :
+ * arrivée pour l'aller, départ pour le retour).
  */
 export interface Flight {
   airport?: string;
@@ -154,14 +175,19 @@ export interface Trip {
   description?: string;
   /** Emoji illustrant le voyage (par défaut le drapeau du pays de destination). */
   emoji?: string;
-  /** Destination principale (libellé lisible, ex. « Japon »). Saisie à la création. */
+  /** Destination principale (libellé lisible, ex. « Sicile, Italie »). Saisie à la création. */
   destination?: string;
   /** Coordonnées de la destination : centre la carte tant qu'aucune étape n'est placée. */
   destinationLocation?: LatLng;
-  /** Vol d'aller (avant la première étape). */
+  /**
+   * Mode de trajet aller/retour. Absent = voyage créé avant ce réglage,
+   * traité comme `plane` (cf. `resolveTravelMode`).
+   */
+  travelMode?: TravelMode;
+  /** Trajet d'aller (avant la première étape). */
   outboundFlight?: Flight;
   stages: Stage[];
-  /** Vol de retour (après la dernière étape). */
+  /** Trajet de retour (après la dernière étape). */
   returnFlight?: Flight;
   /** Propriétaire du voyage (créateur). Géré côté serveur, non éditable via autosave. */
   ownerId: string;

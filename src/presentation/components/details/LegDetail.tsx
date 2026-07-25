@@ -55,7 +55,7 @@ export function LegDetail({ stage, nextStage, onFocus, onClose }: LegDetailProps
         </IconLine>
         <IconLine icon={Hash} title="Référence">{leg.reference}</IconLine>
         <IconLine icon={Wallet} title="Prix">
-          {leg.price != null && `${leg.price}${leg.currency ?? '¥'}`}
+          {leg.price != null && `${leg.price}${leg.currency ?? '€'}`}
         </IconLine>
         <NoteText>{leg.notes}</NoteText>
       </div>

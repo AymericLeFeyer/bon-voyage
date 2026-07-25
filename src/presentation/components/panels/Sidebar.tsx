@@ -19,6 +19,7 @@ import type { FlightSide } from '@/domain/trip/services/tripMutations';
 import { formatTransportSummary } from '@/shared/lib/transport';
 import { formatShortDate } from '@/shared/lib/date';
 import { buildItinerary } from '@/shared/lib/itinerary';
+import { travelCopy, type TravelCopy } from '@/shared/constants/travel';
 import type { SaveStatus } from '@/presentation/hooks/useTrip';
 import type { Selection } from '@/presentation/types';
 import { cn } from '@/shared/lib/cn';
@@ -42,22 +43,23 @@ interface SidebarProps {
   onSelectDay: (date: string) => void;
 }
 
-/** Entrée « Vol aller / retour », rendue comme une étape bout de voyage. */
+/** Entrée « aller / retour » (vol ou train), rendue comme une étape bout de voyage. */
 function FlightRow({
   side,
   flight,
+  copy,
   active,
   isAdmin,
   onSelect,
 }: {
   side: FlightSide;
   flight?: Flight;
+  copy: TravelCopy;
   active: boolean;
   isAdmin: boolean;
   onSelect: (side: FlightSide) => void;
 }) {
   if (!flight && !isAdmin) return null;
-  const label = side === 'outbound' ? 'Vol aller' : 'Vol retour';
   return (
     <button
       onClick={() => onSelect(side)}
@@ -70,9 +72,9 @@ function FlightRow({
             : 'border-dashed border-border text-muted-foreground hover:bg-muted',
       )}
     >
-      <span className="text-lg">✈️</span>
+      <span className="text-lg">{copy.emoji}</span>
       <div className="min-w-0 flex-1">
-        <div className="font-medium">{label}</div>
+        <div className="font-medium">{copy.label[side]}</div>
         {flight?.airport ? (
           <div className="truncate text-xs text-muted-foreground">{flight.airport}</div>
         ) : (
@@ -113,6 +115,8 @@ export function Sidebar({
   onSelectDay,
 }: SidebarProps) {
   const [budgetOpen, setBudgetOpen] = useState(false);
+  // `null` = mode de trajet « non défini » → aucune entrée aller/retour.
+  const travel = travelCopy(trip);
 
   const handleAddStage = () => {
     const stage = createStage(trip.stages.length);
@@ -198,13 +202,16 @@ export function Sidebar({
         <DayList trip={trip} selection={selection} onSelectDay={onSelectDay} />
       ) : (
       <div className="flex-1 space-y-2 overflow-y-auto p-3 scroll-thin">
-        <FlightRow
-          side="outbound"
-          flight={trip.outboundFlight}
-          active={selection?.kind === 'flight' && selection.side === 'outbound'}
-          isAdmin={isAdmin}
-          onSelect={onSelectFlight}
-        />
+        {travel && (
+          <FlightRow
+            side="outbound"
+            flight={trip.outboundFlight}
+            copy={travel}
+            active={selection?.kind === 'flight' && selection.side === 'outbound'}
+            isAdmin={isAdmin}
+            onSelect={onSelectFlight}
+          />
+        )}
 
         <div className="flex items-center justify-between px-1">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -291,13 +298,16 @@ export function Sidebar({
           </p>
         )}
 
-        <FlightRow
-          side="return"
-          flight={trip.returnFlight}
-          active={selection?.kind === 'flight' && selection.side === 'return'}
-          isAdmin={isAdmin}
-          onSelect={onSelectFlight}
-        />
+        {travel && (
+          <FlightRow
+            side="return"
+            flight={trip.returnFlight}
+            copy={travel}
+            active={selection?.kind === 'flight' && selection.side === 'return'}
+            isAdmin={isAdmin}
+            onSelect={onSelectFlight}
+          />
+        )}
       </div>
       )}
     </aside>

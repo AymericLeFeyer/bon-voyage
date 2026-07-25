@@ -22,7 +22,12 @@ const FLIGHT_KEY: Record<FlightSide, 'outboundFlight' | 'returnFlight'> = {
 
 export function patchTrip(
   trip: Trip,
-  patch: Partial<Pick<Trip, 'title' | 'description' | 'emoji' | 'destination' | 'destinationLocation'>>,
+  patch: Partial<
+    Pick<
+      Trip,
+      'title' | 'description' | 'emoji' | 'destination' | 'destinationLocation' | 'travelMode'
+    >
+  >,
 ): Trip {
   return { ...trip, ...patch };
 }

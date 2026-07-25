@@ -1,4 +1,5 @@
 import type { Flight, Place, Stage, Transport, Trip } from '@shared/types/trip';
+import { resolveTravelMode } from '@/shared/constants/travel';
 
 export type FlightSide = 'outbound' | 'return';
 
@@ -39,8 +40,10 @@ function addDays(iso: string, n: number): string {
 }
 
 /** Collecte toutes les dates ISO renseignées dans le voyage. */
-function collectDates(trip: Trip): string[] {
-  const dates: (string | undefined)[] = [trip.outboundFlight?.date, trip.returnFlight?.date];
+function collectDates(trip: Trip, withTravel: boolean): string[] {
+  const dates: (string | undefined)[] = withTravel
+    ? [trip.outboundFlight?.date, trip.returnFlight?.date]
+    : [];
   for (const stage of trip.stages) {
     dates.push(stage.accommodation?.checkInDate, stage.accommodation?.checkOutDate);
     dates.push(stage.transportToNext?.date);
@@ -54,7 +57,9 @@ function collectDates(trip: Trip): string[] {
  * (vols, séjours, transports, créneaux des lieux). Renvoie `[]` si aucune date.
  */
 export function buildItinerary(trip: Trip): DaySummary[] {
-  const dates = collectDates(trip);
+  // Mode de trajet « non défini » : les vols/trains bout de voyage sont ignorés.
+  const withTravel = resolveTravelMode(trip) !== 'none';
+  const dates = collectDates(trip, withTravel);
   if (dates.length === 0) return [];
 
   const start = dates.reduce((min, d) => (d < min ? d : min));
@@ -71,8 +76,10 @@ export function buildItinerary(trip: Trip): DaySummary[] {
     const departureStage = trip.stages.find((s) => s.accommodation?.checkOutDate === day);
 
     const flights: DayFlightRef[] = [];
-    if (trip.outboundFlight?.date === day) flights.push({ side: 'outbound', flight: trip.outboundFlight });
-    if (trip.returnFlight?.date === day) flights.push({ side: 'return', flight: trip.returnFlight });
+    if (withTravel) {
+      if (trip.outboundFlight?.date === day) flights.push({ side: 'outbound', flight: trip.outboundFlight });
+      if (trip.returnFlight?.date === day) flights.push({ side: 'return', flight: trip.returnFlight });
+    }
 
     const legs: DayLegRef[] = [];
     trip.stages.forEach((s, i) => {

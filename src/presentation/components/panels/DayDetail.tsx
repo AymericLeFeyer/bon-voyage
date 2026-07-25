@@ -4,6 +4,7 @@ import type { Trip } from '@shared/types/trip';
 import type { Selection } from '@/presentation/types';
 import { PLACE_CATEGORIES, TRANSPORT_MODES } from '@/shared/constants/catalog';
 import { buildItinerary } from '@/shared/lib/itinerary';
+import { travelCopy } from '@/shared/constants/travel';
 import { formatLongDate } from '@/shared/lib/date';
 import { cn } from '@/shared/lib/cn';
 import { DetailHeader } from '../details/parts';
@@ -73,12 +74,14 @@ export function DayDetail({ trip, date, childSelection, onPush, onFocus, onClose
     if (!day) return [];
     const items: ProgramItem[] = [];
 
+    // `day.flights` est déjà vide quand le mode de trajet est « non défini ».
+    const travel = travelCopy(trip);
     for (const f of day.flights) {
       items.push({
         key: `flight-${f.side}`,
         time: f.flight.legs[0]?.departureTime,
-        emoji: '✈️',
-        label: f.side === 'outbound' ? 'Vol aller' : 'Vol retour',
+        emoji: travel?.emoji ?? '✈️',
+        label: travel?.label[f.side] ?? 'Trajet',
         sub: f.flight.airport,
         variant: 'travel',
         selected: childSelection?.kind === 'flight' && childSelection.side === f.side,
@@ -111,7 +114,7 @@ export function DayDetail({ trip, date, childSelection, onPush, onFocus, onClose
     }
 
     return items.sort((a, b) => (a.time ?? '99:99').localeCompare(b.time ?? '99:99'));
-  }, [day, childSelection, onPush]);
+  }, [trip, day, childSelection, onPush]);
 
   return (
     <div className="flex min-h-0 flex-col">

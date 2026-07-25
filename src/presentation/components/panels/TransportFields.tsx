@@ -1,6 +1,6 @@
 import { Calculator } from 'lucide-react';
 import type { LatLng, Transport, TransportMode } from '@shared/types/trip';
-import { TRANSPORT_MODES } from '@/shared/constants/catalog';
+import { TRANSPORT_MODES, TRANSPORT_MODE_OPTIONS } from '@/shared/constants/catalog';
 import { haversineKm } from '@/shared/lib/geo';
 import { Button } from '../ui/Button';
 import { Field } from '../ui/Field';
@@ -28,9 +28,9 @@ export function TransportFields({ transport, onPatch, hideLabel, from, to }: Tra
           value={transport.mode}
           onChange={(e) => onPatch({ mode: e.target.value as TransportMode })}
         >
-          {Object.entries(TRANSPORT_MODES).map(([key, { label, emoji }]) => (
+          {TRANSPORT_MODE_OPTIONS.map((key) => (
             <option key={key} value={key}>
-              {emoji} {label}
+              {TRANSPORT_MODES[key].emoji} {TRANSPORT_MODES[key].label}
             </option>
           ))}
         </Select>
@@ -120,7 +120,6 @@ export function TransportFields({ transport, onPatch, hideLabel, from, to }: Tra
         price={transport.price}
         currency={transport.currency}
         persons={transport.persons}
-        defaultCurrency="¥"
         onChange={onPatch}
       />
 

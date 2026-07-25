@@ -1,5 +1,6 @@
 import type { LatLng, Trip } from '@shared/types/trip';
 import type { PlacingTarget, Selection } from '@/presentation/types';
+import { travelCopy } from '@/shared/constants/travel';
 import { DayDetail } from './DayDetail';
 import { StageDetail } from '../details/StageDetail';
 import { PlaceDetail } from '../details/PlaceDetail';
@@ -78,12 +79,15 @@ export function DetailContent({
 
   if (selection.kind === 'flight') {
     const flight = selection.side === 'outbound' ? trip.outboundFlight : trip.returnFlight;
-    if (!flight) return null;
+    const copy = travelCopy(trip);
+    // Mode « non défini » : plus aucun trajet aller/retour à afficher.
+    if (!flight || !copy) return null;
     const focus = focusHandler(flight.airportLocation);
     return isAdmin ? (
       <FlightEditor
         side={selection.side}
         flight={flight}
+        copy={copy}
         placingTarget={placingTarget}
         mutate={mutate}
         setPlacingTarget={setPlacingTarget}
@@ -91,7 +95,13 @@ export function DetailContent({
         onClose={onClose}
       />
     ) : (
-      <FlightDetail side={selection.side} flight={flight} onFocus={focus} onClose={onClose} />
+      <FlightDetail
+        side={selection.side}
+        flight={flight}
+        copy={copy}
+        onFocus={focus}
+        onClose={onClose}
+      />
     );
   }
 
