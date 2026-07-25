@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, Compass, Globe, Loader2, MailOpen, Plus, Trash2, Users, X } from 'lucide-react';
+import { Check, Compass, Globe, Loader2, MailOpen, MapPin, Plus, Trash2, Users, X } from 'lucide-react';
 import type { TripSummary } from '@shared/types/trip';
 import type { Invitation } from '@shared/types/user';
 import { tripRepository } from '@/infrastructure/trip/HttpTripRepository';
 import { membershipRepository } from '@/infrastructure/membership/HttpMembershipRepository';
 import { BRAND } from '@/shared/constants/brand';
 import { Button } from '@/presentation/components/ui/Button';
+import { AvatarStack } from '@/presentation/components/ui/AvatarStack';
+import { NewTripModal } from '@/presentation/components/trip/NewTripModal';
+import { DeleteTripDialog } from '@/presentation/components/trip/DeleteTripDialog';
 import { ThemeToggle } from '@/presentation/components/ThemeToggle';
 import { UserMenu } from '@/presentation/components/UserMenu';
 
@@ -15,7 +18,8 @@ export function HomePage() {
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
+  const [newTripOpen, setNewTripOpen] = useState(false);
+  const [toDelete, setToDelete] = useState<TripSummary | null>(null);
 
   const load = () => {
     Promise.all([tripRepository.list(), membershipRepository.listInvitations()])
@@ -32,19 +36,10 @@ export function HomePage() {
 
   useEffect(load, []);
 
-  const handleCreate = async () => {
-    setCreating(true);
-    try {
-      const trip = await tripRepository.create();
-      navigate(`/trip/${trip.id}`);
-    } finally {
-      setCreating(false);
-    }
-  };
-
   const handleDelete = async (id: string) => {
     await tripRepository.remove(id);
     setTrips((prev) => prev.filter((t) => t.id !== id));
+    setToDelete(null);
   };
 
   const accept = async (tripId: string) => {
@@ -104,10 +99,24 @@ export function HomePage() {
         </section>
       )}
 
-      <Button onClick={handleCreate} disabled={creating} className="mb-8">
-        {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+      <Button onClick={() => setNewTripOpen(true)} className="mb-8">
+        <Plus className="h-4 w-4" />
         Nouveau voyage
       </Button>
+
+      <NewTripModal
+        open={newTripOpen}
+        onClose={() => setNewTripOpen(false)}
+        onCreated={(trip) => navigate(`/trip/${trip.id}`)}
+      />
+
+      <DeleteTripDialog
+        open={toDelete !== null}
+        title={toDelete?.title ?? ''}
+        stageCount={toDelete?.stageCount}
+        onCancel={() => setToDelete(null)}
+        onConfirm={() => handleDelete(toDelete!.id)}
+      />
 
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -125,33 +134,45 @@ export function HomePage() {
               className="flex items-center gap-3 rounded-lg border border-border p-4 transition-colors hover:bg-muted"
             >
               <button
-                className="min-w-0 flex-1 text-left"
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 onClick={() => navigate(`/trip/${trip.id}`)}
               >
-                <div className="flex items-center gap-2">
-                  <span className="truncate font-medium">{trip.title}</span>
-                  {!trip.owned && (
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                      <Users className="h-3 w-3" /> Partagé
-                    </span>
-                  )}
-                  {trip.isPublic && (
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                      <Globe className="h-3 w-3" /> Public
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {trip.stageCount} étape{trip.stageCount > 1 ? 's' : ''} · modifié le{' '}
-                  {new Date(trip.updatedAt).toLocaleDateString('fr-FR')}
-                </div>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-xl">
+                  {trip.emoji ?? '🌍'}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className="truncate font-medium">{trip.title}</span>
+                    {!trip.owned && (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        <Users className="h-3 w-3" /> Partagé
+                      </span>
+                    )}
+                    {trip.isPublic && (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                        <Globe className="h-3 w-3" /> Public
+                      </span>
+                    )}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {trip.destination && (
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin className="h-3 w-3" /> {trip.destination} ·{' '}
+                      </span>
+                    )}
+                    {trip.stageCount} étape{trip.stageCount > 1 ? 's' : ''} · modifié le{' '}
+                    {new Date(trip.updatedAt).toLocaleDateString('fr-FR')}
+                  </span>
+                </span>
               </button>
+              {/* Têtes des participants (dès qu'on est plusieurs sur le voyage). */}
+              {trip.members.length > 1 && <AvatarStack users={trip.members} />}
               {trip.owned && (
                 <Button
                   variant="ghost"
                   size="icon"
                   className="text-red-600"
-                  onClick={() => handleDelete(trip.id)}
+                  onClick={() => setToDelete(trip)}
                   title="Supprimer"
                 >
                   <Trash2 className="h-4 w-4" />

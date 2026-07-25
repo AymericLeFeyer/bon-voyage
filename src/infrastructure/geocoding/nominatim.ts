@@ -8,12 +8,15 @@ import type { LatLng } from '@shared/types/trip';
 export interface GeoSuggestion {
   label: string;
   location: LatLng;
+  /** Code pays ISO 3166-1 alpha-2 (ex. « jp »), quand Nominatim le renvoie. */
+  countryCode?: string;
 }
 
 interface NominatimResult {
   display_name: string;
   lat: string;
   lon: string;
+  address?: { country_code?: string };
 }
 
 export async function searchAddress(
@@ -26,7 +29,8 @@ export async function searchAddress(
   const url = new URL('https://nominatim.openstreetmap.org/search');
   url.searchParams.set('q', trimmed);
   url.searchParams.set('format', 'json');
-  url.searchParams.set('addressdetails', '0');
+  // addressdetails=1 : on récupère le code pays (→ emoji drapeau du voyage).
+  url.searchParams.set('addressdetails', '1');
   url.searchParams.set('limit', '6');
   url.searchParams.set('accept-language', 'fr');
 
@@ -40,5 +44,6 @@ export async function searchAddress(
   return results.map((r) => ({
     label: r.display_name,
     location: { lat: Number(r.lat), lng: Number(r.lon) },
+    countryCode: r.address?.country_code,
   }));
 }

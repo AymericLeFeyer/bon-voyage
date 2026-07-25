@@ -110,7 +110,13 @@ export function TripMap({
 
   const fitToTrip = useCallback(() => {
     const map = mapRef.current?.getMap();
-    if (!map || points.length === 0) return;
+    if (!map) return;
+    // Voyage encore vide : on cadre sur la destination saisie à la création.
+    if (points.length === 0) {
+      const dest = trip.destinationLocation;
+      if (dest) map.jumpTo({ center: [dest.lng, dest.lat], zoom: 8 });
+      return;
+    }
     const lngs = points.map((p) => p.lng);
     const lats = points.map((p) => p.lat);
     map.fitBounds(

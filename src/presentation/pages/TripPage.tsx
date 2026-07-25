@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import type { LatLng } from '@shared/types/trip';
 import { setAccommodation, setFlight, updatePlace } from '@/domain/trip/services/tripMutations';
@@ -10,6 +10,7 @@ import { useIsMobile } from '@/presentation/hooks/useMediaQuery';
 import { tripRepository } from '@/infrastructure/trip/HttpTripRepository';
 import { TripAccessProvider } from '@/presentation/mode/TripAccessProvider';
 import { TripSettingsModal } from '@/presentation/components/trip/TripSettingsModal';
+import { DeleteTripDialog } from '@/presentation/components/trip/DeleteTripDialog';
 import { deriveMapSelection, type PlacingTarget, type Selection } from '@/presentation/types';
 import { Sidebar } from '@/presentation/components/panels/Sidebar';
 import { DetailModal } from '@/presentation/components/panels/DetailModal';
@@ -19,14 +20,21 @@ import { MobileTripView } from './MobileTripView';
 
 export function TripPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { trip, access, loading, loadError, saveStatus, mutate, setTrip } = useTrip(id);
   const isMobile = useIsMobile();
   const canEdit = access === 'owner' || access === 'editor';
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const setPublic = async (isPublic: boolean) => {
     const updated = await tripRepository.setPublic(id, isPublic);
     setTrip(updated);
+  };
+
+  const deleteTrip = async () => {
+    await tripRepository.remove(id);
+    navigate('/', { replace: true });
   };
 
   // Vue par étape (défaut) ou par jour. Persisté.
@@ -168,14 +176,24 @@ export function TripPage() {
   const resolvedAccess = access ?? 'public';
 
   const settingsModal = (
-    <TripSettingsModal
-      open={settingsOpen}
-      onClose={() => setSettingsOpen(false)}
-      tripId={trip.id}
-      access={resolvedAccess}
-      isPublic={trip.isPublic}
-      onSetPublic={setPublic}
-    />
+    <>
+      <TripSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        trip={trip}
+        access={resolvedAccess}
+        onSetPublic={setPublic}
+        mutate={mutate}
+        onDelete={() => setDeleteOpen(true)}
+      />
+      <DeleteTripDialog
+        open={deleteOpen}
+        title={trip.title}
+        stageCount={trip.stages.length}
+        onCancel={() => setDeleteOpen(false)}
+        onConfirm={deleteTrip}
+      />
+    </>
   );
 
   if (isMobile) {

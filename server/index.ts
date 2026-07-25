@@ -40,7 +40,7 @@ import {
 import { appUrl, emailEnabled, sendInvitationEmail } from './email.ts';
 import { claimOrphanTrips } from './repository.ts';
 import { buildDefaultTrip } from './defaultTrip.ts';
-import type { TripInput } from '../shared/types/trip.ts';
+import type { TripInput, TripSummary } from '../shared/types/trip.ts';
 import type { LoginInput, ProfileUpdate, RegisterInput } from '../shared/types/user.ts';
 
 const app = express();
@@ -114,7 +114,16 @@ api.patch('/auth/me', requireAuth, (req, res) => {
 
 // ─────────────────────────────  Voyages  ─────────────────────────────
 api.get('/trips', requireAuth, (req, res) => {
-  res.json(listTripsForUser(req.user!.id));
+  // On joint les participants (propriétaire + membres acceptés) pour afficher
+  // leurs avatars dans la liste des voyages.
+  const summaries: TripSummary[] = listTripsForUser(req.user!.id).map((row) => {
+    const members = getMembers(row.id);
+    return {
+      ...row,
+      members: members ? [members.owner, ...members.members] : [],
+    };
+  });
+  res.json(summaries);
 });
 
 api.post('/trips', requireAuth, (req, res) => {

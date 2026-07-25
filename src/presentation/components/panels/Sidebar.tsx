@@ -148,16 +148,19 @@ export function Sidebar({
             <UserMenu />
           </div>
         </div>
-        {isAdmin ? (
-          <input
-            value={trip.title}
-            onChange={(e) => mutate((t) => patchTrip(t, { title: e.target.value }))}
-            className="w-full bg-transparent text-lg font-bold outline-none focus:ring-0"
-            placeholder="Titre du voyage"
-          />
-        ) : (
-          <h1 className="text-lg font-bold">{trip.title}</h1>
-        )}
+        <div className="flex items-center gap-2">
+          {trip.emoji && <span className="shrink-0 text-xl leading-none">{trip.emoji}</span>}
+          {isAdmin ? (
+            <input
+              value={trip.title}
+              onChange={(e) => mutate((t) => patchTrip(t, { title: e.target.value }))}
+              className="w-full bg-transparent text-lg font-bold outline-none focus:ring-0"
+              placeholder="Titre du voyage"
+            />
+          ) : (
+            <h1 className="text-lg font-bold">{trip.title}</h1>
+          )}
+        </div>
         <div className="flex gap-2">
           <Button
             variant="secondary"

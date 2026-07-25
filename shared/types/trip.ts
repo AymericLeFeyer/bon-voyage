@@ -3,6 +3,8 @@
  * Le voyage complet est stocké tel quel (document JSON) côté SQLite.
  */
 
+import type { PublicUser } from './user.ts';
+
 export interface LatLng {
   lat: number;
   lng: number;
@@ -150,6 +152,12 @@ export interface Trip {
   id: string;
   title: string;
   description?: string;
+  /** Emoji illustrant le voyage (par défaut le drapeau du pays de destination). */
+  emoji?: string;
+  /** Destination principale (libellé lisible, ex. « Japon »). Saisie à la création. */
+  destination?: string;
+  /** Coordonnées de la destination : centre la carte tant qu'aucune étape n'est placée. */
+  destinationLocation?: LatLng;
   /** Vol d'aller (avant la première étape). */
   outboundFlight?: Flight;
   stages: Stage[];
@@ -181,11 +189,15 @@ export interface TripEnvelope {
 export interface TripSummary {
   id: string;
   title: string;
+  emoji?: string;
+  destination?: string;
   updatedAt: string;
   stageCount: number;
   /** true si l'utilisateur courant est le propriétaire de ce voyage. */
   owned: boolean;
   isPublic: boolean;
+  /** Participants (propriétaire en tête, puis les membres acceptés). */
+  members: PublicUser[];
 }
 
 /**

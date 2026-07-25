@@ -20,7 +20,10 @@ const FLIGHT_KEY: Record<FlightSide, 'outboundFlight' | 'returnFlight'> = {
  * sans muter l'original (facilite l'autosave et l'undo éventuel).
  */
 
-export function patchTrip(trip: Trip, patch: Partial<Pick<Trip, 'title' | 'description'>>): Trip {
+export function patchTrip(
+  trip: Trip,
+  patch: Partial<Pick<Trip, 'title' | 'description' | 'emoji' | 'destination' | 'destinationLocation'>>,
+): Trip {
   return { ...trip, ...patch };
 }
 

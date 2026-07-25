@@ -70,13 +70,18 @@ export function getTripMeta(id: string): { ownerId: string | null; isPublic: boo
   return { ownerId: row.owner_id, isPublic: row.is_public === 1 };
 }
 
-export function listTripsForUser(userId: string): (TripSummary & { ownerId: string })[] {
+/** Résumés sans les participants : ceux-ci sont ajoutés par la route (voir membership). */
+export type TripSummaryRow = Omit<TripSummary, 'members'> & { ownerId: string };
+
+export function listTripsForUser(userId: string): TripSummaryRow[] {
   const rows = selectForUser.all(userId, userId) as unknown as TripRow[];
   return rows.map((row) => {
     const trip = rowToTrip(row);
     return {
       id: trip.id,
       title: trip.title,
+      emoji: trip.emoji,
+      destination: trip.destination,
       updatedAt: trip.updatedAt,
       stageCount: trip.stages.length,
       owned: trip.ownerId === userId,

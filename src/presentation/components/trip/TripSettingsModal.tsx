@@ -1,33 +1,46 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Copy, Globe, Loader2, Lock, MailCheck, Trash2, UserPlus, X } from 'lucide-react';
-import type { TripAccess } from '@shared/types/trip';
+import type { Trip, TripAccess } from '@shared/types/trip';
 import type { TripMembers } from '@shared/types/user';
 import { membershipRepository } from '@/infrastructure/membership/HttpMembershipRepository';
 import { HttpError } from '@/infrastructure/http/httpClient';
+import { patchTrip } from '@/domain/trip/services/tripMutations';
+import { shortPlaceLabel } from '@/shared/lib/place';
+import { flagEmoji } from '@/shared/lib/flag';
+import { AddressAutocomplete } from '@/presentation/components/AddressAutocomplete';
 import { Modal } from '@/presentation/components/ui/Modal';
 import { Button } from '@/presentation/components/ui/Button';
 import { Input } from '@/presentation/components/ui/Input';
+import { Field } from '@/presentation/components/ui/Field';
 import { Avatar } from '@/presentation/components/ui/Avatar';
+import { EmojiPicker } from './EmojiPicker';
 
 interface TripSettingsModalProps {
   open: boolean;
   onClose: () => void;
-  tripId: string;
+  trip: Trip;
   access: TripAccess;
-  isPublic: boolean;
   onSetPublic: (isPublic: boolean) => Promise<void>;
+  /** Édition du contenu (titre/emoji/destination) → autosave. */
+  mutate: (updater: (trip: Trip) => Trip) => void;
+  /** Suppression du voyage (propriétaire uniquement). */
+  onDelete: () => void;
 }
 
-/** Réglages d'un voyage : visibilité publique + participants (invitations par email). */
+/** Réglages d'un voyage : identité, visibilité publique, participants, suppression. */
 export function TripSettingsModal({
   open,
   onClose,
-  tripId,
+  trip,
   access,
-  isPublic,
   onSetPublic,
+  mutate,
+  onDelete,
 }: TripSettingsModalProps) {
+  const tripId = trip.id;
+  const isPublic = trip.isPublic;
   const isOwner = access === 'owner';
+  const canEdit = isOwner || access === 'editor';
   const [members, setMembers] = useState<TripMembers | null>(null);
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +103,50 @@ export function TripSettingsModal({
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto p-5">
+        {/* Identité du voyage : nom, emoji, destination */}
+        {canEdit && (
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold">Le voyage</h3>
+
+            <Field label="Nom du voyage">
+              <div className="flex items-start gap-2">
+                <EmojiPicker
+                  value={trip.emoji ?? ''}
+                  onChange={(emoji) => mutate((t) => patchTrip(t, { emoji: emoji || undefined }))}
+                />
+                <Input
+                  value={trip.title}
+                  placeholder="Road trip en Sicile"
+                  onChange={(e) => mutate((t) => patchTrip(t, { title: e.target.value }))}
+                />
+              </div>
+            </Field>
+
+            <Field label="Destination">
+              <AddressAutocomplete
+                value={trip.destination ?? ''}
+                placeholder="Japon, Lisbonne, Sicile…"
+                onChange={(text) =>
+                  mutate((t) =>
+                    patchTrip(t, { destination: text || undefined, destinationLocation: undefined }),
+                  )
+                }
+                onSelect={(s) => {
+                  const flag = flagEmoji(s.countryCode);
+                  mutate((t) =>
+                    patchTrip(t, {
+                      destination: shortPlaceLabel(s.label),
+                      destinationLocation: s.location,
+                      // On ne remplace l'emoji que s'il n'a pas été choisi à la main.
+                      emoji: t.emoji ?? flag,
+                    }),
+                  );
+                }}
+              />
+            </Field>
+          </section>
+        )}
+
         {/* Visibilité */}
         <section className="space-y-2">
           <h3 className="text-sm font-semibold">Visibilité</h3>
@@ -250,6 +307,29 @@ export function TripSettingsModal({
             )}
           </ul>
         </section>
+
+        {/* Suppression (propriétaire) — confirmation dans un second temps. */}
+        {isOwner && (
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold text-red-600">Zone de danger</h3>
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-red-500/40 p-3">
+              <div>
+                <div className="text-sm font-medium">Supprimer ce voyage</div>
+                <p className="text-xs text-muted-foreground">
+                  Définitif : étapes, lieux, budget et accès des participants sont perdus.
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="shrink-0 text-red-600"
+                onClick={onDelete}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Supprimer
+              </Button>
+            </div>
+          </section>
+        )}
       </div>
     </Modal>
   );

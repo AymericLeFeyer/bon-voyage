@@ -863,7 +863,10 @@ export function MobileTripView({
             ←
           </Link>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-sm font-bold leading-tight">{trip.title}</h1>
+            <h1 className="truncate text-sm font-bold leading-tight">
+              {trip.emoji ? `${trip.emoji} ` : ''}
+              {trip.title}
+            </h1>
             <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
               {isAdmin ? (
                 <>

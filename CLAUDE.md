@@ -1,6 +1,6 @@
 # CLAUDE.md — Bon Voyage
 
-> Dernière mise à jour : 2026-07-24 (passage SaaS : comptes email/mdp, profils, invitations par email + lien /invite/:token avec envoi d'email pluggable (Resend/console), voyage public, remplacement du code admin par l'auth)
+> Dernière mise à jour : 2026-07-25 (création guidée d'un voyage : nom + destination + emoji/drapeau ; suppression protégée par saisie du titre ; avatars des participants dans la liste des voyages)
 
 **Bon Voyage** — *« Planifiez vos voyages et voyez-les prendre forme sur la carte. »* App web multi-comptes pour planifier/visualiser un voyage sur une carte : étapes ordonnées (nuits) + lieux satellites sans ordre. Autosave. **Open source, self-hosted, option SaaS.** Marque centralisée dans `src/shared/constants/brand.ts` (`BRAND.name` / `BRAND.tagline`).
 
@@ -50,14 +50,14 @@ src/presentation/            # pages/, components/, hooks/, auth/ (AuthProvider)
 - `presentation/auth/AuthProvider.tsx` : session utilisateur globale (`useAuth` → `user, loading, register/login/logout/updateProfile`).
 - `presentation/mode/TripAccessProvider.tsx` : accès au voyage courant (`useTripAccess` → `{ access, canEdit }`). Posé par `TripPage` autour de la sidebar/mobile.
 - `presentation/components/auth/` : `RequireAuth` (garde de route), `AvatarUpload` (photo → base64). `components/UserMenu.tsx` : avatar → Profil / Déconnexion. `components/ui/Avatar.tsx` : photo + repli initiales.
-- `presentation/components/trip/TripSettingsModal.tsx` : réglages voyage (public/privé + invitations/membres).
+- `presentation/components/trip/` : `TripSettingsModal` (identité du voyage + public/privé + invitations/membres + zone de danger), `NewTripModal` (création guidée), `DeleteTripDialog` (confirmation de suppression), `EmojiPicker` (emoji du voyage).
 - `presentation/components/details/` : vues **lecture seule** partagées modale + mobile (`StageDetail`, `PlaceDetail`, `LegDetail`, `parts.tsx` = `AccommodationBlock`/`PlaceLine`/`InfoLine`/`MapsLink`/`DetailHeader`).
 - `presentation/components/panels/` : éditeurs (formulaires) + `DetailModal` (aiguilleur visu/admin).
 
 ## Domaine `trip`
 
 ### Entités (`shared/types/trip.ts`)
-- **Trip** : `id, title, description?, outboundFlight?, stages[], returnFlight?, ownerId, isPublic, createdAt, updatedAt` — `ownerId`/`isPublic` viennent des **colonnes** (injectés à la lecture), **jamais** modifiés via l'autosave.
+- **Trip** : `id, title, description?, emoji?, destination?, destinationLocation?, outboundFlight?, stages[], returnFlight?, ownerId, isPublic, createdAt, updatedAt` — `ownerId`/`isPublic` viennent des **colonnes** (injectés à la lecture), **jamais** modifiés via l'autosave. `emoji`/`destination`/`destinationLocation` sont saisis à la **création** (`NewTripModal`) et modifiables dans les **réglages** ; ils font partie du contenu JSON (donc de `TripInput`, autosave).
 - **TripAccess** = `'owner' | 'editor' | 'public'`. **TripEnvelope** = `{ trip, access }` (réponse de `GET /trips/:id`).
 - **Stage** (étape/nuit) : `id, name, color, emoji?, accommodation?, places[], transportToNext?, notes?, imageUrl?, confidential?` — `transportToNext` = jambe de trajet vers l'étape suivante ; `emoji?` s'affiche dans le marqueur (sinon le numéro) ; `imageUrl` = photo ; `confidential` = infos visibles admin uniquement
 - **Accommodation** : `name, address?, location?{lat,lng}, googleMapsUrl?, checkInDate?, checkOutDate?, arrivalTime?, departureTime?, modalities?, price?, currency?, persons?, notes?` — `price/currency` = coût du séjour (agrégé dans le budget) ; `persons?` = nb de personnes couvertes par le prix (défaut 1, sert au budget par personne)
@@ -67,7 +67,7 @@ src/presentation/            # pages/, components/, hooks/, auth/ (AuthProvider)
 - **FlightLeg** (segment / correspondance) : `id, flightNumber?, from?, to?, departureTime?, arrivalTime?`
 - ⚠️ Le système de « trajets libres » (`trip.transports[]`, `TransportPanel`, « Autres trajets ») a été **supprimé** au profit des vols aller/retour.
 - `TripInput = Omit<Trip,'id'|'createdAt'|'updatedAt'|'ownerId'|'isPublic'>` (le PUT autosave ne touche que le contenu ; `ownerId`/`isPublic` sont gérés par le serveur).
-- **TripSummary** : `id, title, updatedAt, stageCount, owned, isPublic` (`owned` = l'utilisateur courant est propriétaire).
+- **TripSummary** : `id, title, emoji?, destination?, updatedAt, stageCount, owned, isPublic, members[]` (`owned` = l'utilisateur courant est propriétaire ; `members` = `PublicUser[]`, **propriétaire en tête** puis membres acceptés → avatars sur `HomePage`). Le serveur assemble `members` dans la route `GET /trips` (`listTripsForUser` renvoie `TripSummaryRow` = résumé **sans** `members`, + `ownerId`) : `repository.ts` ne peut pas importer `membership.ts` (cycle).
 
 ### Repository (`src/domain/trip/repositories/TripRepository.ts`)
 `list()`, `getById(id) → TripEnvelope`, `create(input?)`, `update(id, input)`, `remove(id)`, `setPublic(id, isPublic)`. Impl HTTP : `src/infrastructure/trip/HttpTripRepository.ts` (instance `tripRepository`).
@@ -103,12 +103,12 @@ src/presentation/            # pages/, components/, hooks/, auth/ (AuthProvider)
 | POST | `/api/auth/logout` | Supprime la session |
 | GET | `/api/auth/me` | Utilisateur courant (401 si non connecté) |
 | PATCH | `/api/auth/me` | Met à jour le profil (`name/country/avatar/password`) |
-| GET | `/api/trips` | **[auth]** Voyages possédés + partagés (`TripSummary[]`) |
-| POST | `/api/trips` | **[auth]** Crée (owner = moi). Body vide → voyage d'exemple |
+| GET | `/api/trips` | **[auth]** Voyages possédés + partagés (`TripSummary[]`, **participants inclus** via `getMembers`) |
+| POST | `/api/trips` | **[auth]** Crée (owner = moi). L'UI envoie `{title, emoji?, destination?, destinationLocation?, stages: []}`. Body vide → `buildDefaultTrip()` = voyage **vide** « Nouveau voyage » (plus d'exemple Japon) |
 | GET | `/api/trips/:id` | Renvoie `{ trip, access }`. Membre → complet ; `public` → **confidentiel retiré** ; sinon 401/404 |
 | PUT | `/api/trips/:id` | **[canEdit]** Autosave du contenu (conserve `owner_id/is_public/id/createdAt`) |
 | PATCH | `/api/trips/:id/settings` | **[owner]** `{isPublic}` |
-| DELETE | `/api/trips/:id` | **[owner]** Supprime |
+| DELETE | `/api/trips/:id` | **[owner]** Supprime (côté UI : toujours derrière `DeleteTripDialog`) |
 | GET | `/api/trips/:id/members` | **[canEdit]** `TripMembers` (owner + membres + emails en attente) |
 | POST | `/api/trips/:id/invite` | **[canEdit]** Invite par `{email}` (compte **ou non**) → `InviteResponse` `{members, inviteUrl, emailSent}`. Envoie l'email si configuré |
 | DELETE | `/api/trips/:id/invites` | **[owner]** Annule une invitation en attente (`{email}`) |
@@ -178,6 +178,10 @@ src/presentation/            # pages/, components/, hooks/, auth/ (AuthProvider)
 - **Blocs de texte aérés (lecture)** : `NoteText` (`details/parts.tsx`, icône `lucide` + texte multiligne, `null` si vide) pour éviter les gros pavés en mode visuel. Utilisé pour notes/modalités/notes de vol dans `AccommodationBlock`/`StageDetail`/`PlaceDetail`/`LegDetail`/`FlightDetail` (icônes `StickyNote`, `KeyRound` pour modalités). Équivalent mobile = `SheetNote` (`MobileTripView`, style `rounded-xl`). Les **descriptions** de voyage (sidebar desktop + sheet mobile) sont préfixées d'un `Info`.
 - **Informations confidentielles** : `place.confidential` / `stage.confidential`. Saisies via un `Textarea` 🔒 dans les éditeurs. Affichées par `ConfidentialBlock` (`details/`) qui **s'auto-protège** via `useTripAccess` : rendu **uniquement si `canEdit`** (membre/propriétaire). ⚠️ **Défense en profondeur** : pour un accès `public`, le **serveur** ne renvoie déjà plus ces champs (`stripConfidential`) — le garde client n'a plus de secret à cacher. Placé dans `PlaceDetail`/`StageDetail` + mobiles `PlaceContent`/`StageContent`.
 - **Comptes & permissions** : `AuthProvider` (global) résout la session ; `TripPage` pose `TripAccessProvider access={…}` (venu de `useTrip().access`) autour de la sidebar/mobile → `canEdit` remplace l'ancien `isAdmin` **partout** (le prop garde le nom `isAdmin` dans les composants profonds). Boutons **Réglages** (`Settings`) et **Budget** visibles `canEdit` seulement. `UserMenu` (avatar) dans la sidebar/barre mobile + `HomePage`. `TripSettingsModal` = bascule public/privé (owner) + invitations/membres. Avatar uploadé → base64 (`AvatarUpload` + `fileToResizedDataUrl`).
+- **Création guidée d'un voyage** (`NewTripModal`, ouvert par « Nouveau voyage » sur `HomePage`) : **destination** (`AddressAutocomplete` Nominatim) + **nom** + **emoji**. Choisir une destination remplit `destination` (`shortPlaceLabel(display_name)` → « Kyoto, Japon »), `destinationLocation`, l'**emoji = drapeau du pays** (`flagEmoji(countryCode)`, `src/shared/lib/flag.ts`) et le titre s'il est encore vide. Le voyage est créé **vide** (`stages: []`) — plus de « Voyage au Japon » pré-rempli. Tout est re-modifiable dans **Réglages → Le voyage** (mêmes composants, via `patchTrip` + autosave).
+- **Emoji du voyage** (`EmojiPicker`, `components/trip/`) : bouton emoji → palette de suggestions + champ libre (4 caractères max). Affiché devant le titre dans la sidebar desktop, la barre mobile et la liste des voyages. Dans les réglages, choisir une nouvelle destination ne **remplace pas** un emoji déjà défini (`emoji: t.emoji ?? flag`).
+- **Suppression protégée** (`DeleteTripDialog`) : la suppression est définitive (document JSON, pas de corbeille) → modale rappelant le titre + le nombre d'étapes perdues, et il faut **retaper le titre** (comparaison insensible à la casse/espaces) pour activer le bouton rouge. Deux points d'entrée : la corbeille de `HomePage` (propriétaire) et **Réglages → Zone de danger** dans `TripPage` (qui redirige vers `/` après suppression). Ne jamais appeler `tripRepository.remove` sans passer par ce dialogue.
+- **Participants dans la liste** (`AvatarStack`, `components/ui/`) : têtes superposées (`-space-x-2`, ring `ring-card`), 4 max puis `+N`, affichées seulement si `trip.members.length > 1`. Les membres viennent de `TripSummary.members` (propriétaire en tête).
 - **Invitation par email** : `TripSettingsModal` invite un email → `InviteResponse` ; on affiche membres acceptés + **invitations en attente** (emails, annulables par l'owner) + un **lien copiable** (toujours, indispensable en mode console). Page `/invite/:token` (`InvitePage`) : résout le token (public), puis accepte/refuse si connecté, sinon renvoie vers `/register` (email + `from` pré-remplis via `location.state`). Deux canaux d'acceptation : **par token** (lien, capacité) et **par email** (bannière `HomePage` = `/me/invitations`, match sur l'email du compte).
 - **Bascule Vue par étape / Vue par jour** (`viewMode: 'stages' | 'days'` dans `TripPage`, persisté `localStorage` `trip-visualizer.viewMode`). Un bouton **CalendarDays « Vue par jour » / List « Vue par étape »** (sidebar desktop + barre mobile) bascule et **vide la pile** de sélection. `buildItinerary(trip)` (`src/shared/lib/itinerary.ts`) → `DaySummary[]` (une entrée par jour entre min/max des dates : `stage` base `checkIn ≤ jour < checkOut`, `arrival/departureStage`, `flights`, `legs`, `places`).
   - **Vue par jour = même système de tiroirs/sheet** : la liste (sidebar `DayList` / rail mobile) montre les **jours** ; cliquer un jour → sélection `{kind:'day', date}`. Contenu = `DayDetail` (desktop, `panels/`) / `DayContent` (mobile) : un **programme chronologique** unique fusionnant vols + **transports (= « étapes à faire dans la journée »)** + lieux, trié par heure. **Trajets (vols/transports) = variant `travel`** stylés en **bordure pointillée** (`border-dashed`, distincts des lieux ; pas de couleur de fond). Libellé d'un trajet = `étape → étape suivante` (jamais `leg.label`, qui reste « Nouveau trajet » car non éditable). L'**hébergement (« Nuit ») est affiché en fin de journée**, pas au début. Lignes en `break-words` (cliquables même en tiroir étroit). Chaque item **empile un tiroir** via `onPush` (desktop) ou navigue le sheet (mobile).
@@ -194,7 +198,9 @@ src/presentation/            # pages/, components/, hooks/, auth/ (AuthProvider)
 - ⚠️ **Chunk maplibre-gl ~800 kB** : warning de build attendu (lib carto volumineuse), pas bloquant.
 - ⚠️ **Marqueur de transport** : placé au **milieu** du segment entre deux hébergements géolocalisés ; n'apparaît que si `transportToNext` **et** les deux locations existent.
 - ⚠️ **`map.flyTo` + `padding`** : ne **jamais** passer `padding: undefined` (maplibre v4 lève → l'effet plante → écran grisé). N'ajouter la clé `padding` que si un inset est réellement fourni. C'est le cas desktop (pas d'inset) vs mobile (inset = hauteur du bottom sheet).
-- ⚠️ **Nominatim** : usage raisonnable (≈1 req/s), toujours débouncer (`useGeocodeSearch`) et fournir un `accept-language`.
+- ⚠️ **Nominatim** : usage raisonnable (≈1 req/s), toujours débouncer (`useGeocodeSearch`) et fournir un `accept-language`. La requête passe `addressdetails=1` pour récupérer `address.country_code` → `GeoSuggestion.countryCode` (drapeau du voyage) ; ne pas le repasser à `0`.
+- ⚠️ **Suggestions d'adresse dans une modale** : la liste est en `absolute` dans un corps `overflow-y-auto` → elle est **clipée**. `NewTripModal` réserve donc un `min-h-[380px]` sous le champ destination ; penser à cet espace pour toute nouvelle modale contenant un `AddressAutocomplete`.
+- ⚠️ **`FitBounds` d'un voyage vide** : sans aucun point, `fitToTrip` cadre sur `trip.destinationLocation` (`jumpTo`, zoom 8) ; `JAPAN_VIEW` ne reste que le repli des voyages sans destination.
 - ⚠️ **`node:sqlite`** (choisi car `better-sqlite3` échoue à compiler sous Windows sans Visual Studio Build Tools) : dispo dans Node 24 **sans flag**, émet juste un `ExperimentalWarning`. API proche de better-sqlite3 mais `prepare()` **sans generics** et `.get()/.all()` renvoient `Record<string,SQLOutputValue>` → caster via `as unknown as TripRow`.
 - ⚠️ **`npm start` a besoin de `tsx`** (dép. de dev) au runtime : l'image Docker copie tout `node_modules` depuis l'étape build.
 - ⚠️ **`FitBounds`** ne recadre qu'au **changement de `trip.id`** (pas à chaque édition), sinon la carte saute pendant qu'on édite.
