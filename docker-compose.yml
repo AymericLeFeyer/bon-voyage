@@ -4,21 +4,12 @@ services:
     container_name: trip-visualizer-db
     restart: unless-stopped
     environment:
-      # ⚠️ Ces lignes sont indispensables : sans elles, les variables d'une stack
-      # Portainer servent seulement à l'interpolation du compose et n'entrent pas
-      # dans le conteneur.
       - POSTGRES_USER=${POSTGRES_USER:-bonvoyage}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD est requis (voir .env.example)}
       - POSTGRES_DB=${POSTGRES_DB:-bonvoyage}
     ports:
-      # Accès externe à la bdd (DBeaver, pgAdmin, psql).
-      # ⚠️ Docker publie ses ports en écrivant dans iptables, ce qui court-circuite
-      # ufw/firewalld. Par défaut on écoute donc sur 127.0.0.1 (hôte uniquement,
-      # via tunnel SSH). Mettre DB_BIND_HOST=0.0.0.0 pour ouvrir au LAN.
       - "${DB_BIND_HOST:-127.0.0.1}:${DB_PORT:-5432}:5432"
     volumes:
-      # Volume nommé : pas de souci de permissions UID selon l'hôte.
-      # Sauvegarde via `pg_dump`, pas par copie de fichiers.
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test:
@@ -28,10 +19,9 @@ services:
       retries: 10
 
   trip-visualizer:
-    # Image publiée par GitHub Actions à chaque push sur `main` (.github/workflows/deploy.yml).
-    # Le webhook Portainer redéploie la stack, qui re-pull ce tag.
-    # Pour builder localement : docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
     image: ${APP_IMAGE:-ghcr.io/aymericlefeyer/bon-voyage:latest}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     container_name: trip-visualizer
     restart: unless-stopped
     depends_on:
@@ -42,16 +32,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=42069
-      # Source unique de vérité = les POSTGRES_* du .env ; l'URL est assemblée ici.
-      # `db` = nom du service ci-dessus (résolution DNS interne au réseau compose).
       - DATABASE_URL=postgres://${POSTGRES_USER:-bonvoyage}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-bonvoyage}
-      # --- Emails d'invitation (optionnel) ---
-      # Renseignées dans le .env à côté du compose (ou les « Environment
-      # variables » d'une stack Portainer) ; vides = mode "console" (lien
-      # d'invitation copiable dans l'UI).
-      # APP_URL=https://voyage.votre-domaine.com
-      # RESEND_API_KEY=re_xxxxxxxxxxxx
-      # EMAIL_FROM=Bon Voyage <invitations@votre-domaine.com>
       - APP_URL=${APP_URL:-}
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - EMAIL_FROM=${EMAIL_FROM:-}
