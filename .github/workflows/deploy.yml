@@ -80,7 +80,7 @@ jobs:
           script: |
             echo "🚀 Starting deployment..."
             
-            cd /data/compose/2
+            cd /var/lib/docker/volumes/portainer_data/_data/compose/1
             
             echo "📦 Pulling latest image..."
             docker compose pull trip-visualizer
