@@ -1,0 +1,9 @@
+# Override pour builder l'image localement au lieu de la tirer de GHCR.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# La stack de production (Portainer) n'utilise que docker-compose.yml : elle
+# pull l'image publiée par GitHub Actions, aucun build ne tourne sur le serveur.
+services:
+  trip-visualizer:
+    build: .

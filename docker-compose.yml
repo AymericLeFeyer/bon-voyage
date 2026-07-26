@@ -28,7 +28,10 @@ services:
       retries: 10
 
   trip-visualizer:
-    build: .
+    # Image publiée par GitHub Actions à chaque push sur `main` (.github/workflows/deploy.yml).
+    # Le webhook Portainer redéploie la stack, qui re-pull ce tag.
+    # Pour builder localement : docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+    image: ${APP_IMAGE:-ghcr.io/aymericlefeyer/bon-voyage:latest}
     container_name: trip-visualizer
     restart: unless-stopped
     depends_on:

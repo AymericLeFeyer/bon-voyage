@@ -46,11 +46,51 @@ npm start            # sert dist/ + l'API sur le PORT (défaut 42069)
 
 ```bash
 cp .env.example .env         # POSTGRES_PASSWORD est obligatoire
-docker compose up -d --build
+docker compose up -d         # tire l'image ghcr.io/aymericlefeyer/bon-voyage:latest
 ```
 
 Deux conteneurs : `trip-visualizer` (app, port `42069`) et `trip-visualizer-db`
 (PostgreSQL 16). Les données vivent dans le volume Docker `pgdata`.
+
+L'image de l'app est **publiée par la CI** (voir plus bas) ; le serveur ne
+compile rien. Pour builder localement (fork, modif non poussée) :
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+## Déploiement continu (GitHub Actions → Portainer)
+
+`.github/workflows/deploy.yml` s'exécute à chaque push sur `main` :
+
+1. **Lint + types** (`eslint`, `tsc -b`) ;
+2. **Build de l'image Docker** (le `npm run build` du Dockerfile valide le
+   bundle Vite) puis **push sur GHCR** en `:latest` et `:sha-<commit>` ;
+3. **Appel du webhook Portainer**, qui re-pull l'image et redéploie la stack.
+
+Si une étape échoue, rien n'est publié ni déployé. Le workflow est aussi
+déclenchable à la main (onglet *Actions* → *Déploiement* → *Run workflow*).
+
+### Mise en place (une seule fois)
+
+1. **Portainer** → la stack → *Webhooks* → activer **Enable webhook**, copier
+   l'URL (`https://portainer.exemple.com/api/stacks/webhooks/<uuid>`).
+2. **GitHub** → *Settings* → *Secrets and variables* → *Actions* → nouveau
+   secret **`PORTAINER_WEBHOOK`** avec cette URL. Sans ce secret, la CI publie
+   l'image mais saute le déploiement (avec un avertissement).
+3. **Visibilité du package** : au premier push, le package GHCR est *privé*.
+   Soit on le passe en **public** (page du package → *Package settings* →
+   *Change visibility*), soit on garde le privé et on ajoute un
+   `docker login ghcr.io` sur le serveur (*Registries* dans Portainer) avec un
+   PAT `read:packages`.
+
+> Le webhook Portainer doit être joignable depuis les runners GitHub (Internet).
+> Si ton Portainer n'est pas exposé, garde le workflow jusqu'à l'étape 2 : la
+> stack se met à jour avec un `docker compose pull && docker compose up -d`.
+
+Variante utile : pointer `APP_IMAGE` (dans le `.env`) sur un tag figé, par
+exemple `APP_IMAGE=ghcr.io/aymericlefeyer/bon-voyage:sha-abc1234`, pour
+épingler ou revenir à une version précédente.
 
 ### Se connecter à la base depuis l'extérieur
 

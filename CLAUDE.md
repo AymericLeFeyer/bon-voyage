@@ -1,6 +1,6 @@
 # CLAUDE.md — Bon Voyage
 
-> Dernière mise à jour : 2026-07-25 (**bdd sortie du monolithe** : PostgreSQL en service Docker séparé, driver `pg`, document du voyage en JSONB, couche serveur passée en async ; mode de trajet aller/retour **avion / train / non défini** ; devises en **codes ISO**)
+> Dernière mise à jour : 2026-07-26 (**CI/CD** : GitHub Actions build+push l'image sur GHCR puis déclenche le webhook Portainer ; le compose consomme une `image:` au lieu de `build: .`) — 2026-07-25 (**bdd sortie du monolithe** : PostgreSQL en service Docker séparé, driver `pg`, document du voyage en JSONB, couche serveur passée en async ; mode de trajet aller/retour **avion / train / non défini** ; devises en **codes ISO**)
 
 **Bon Voyage** — *« Planifiez vos voyages et voyez-les prendre forme sur la carte. »* App web multi-comptes pour planifier/visualiser un voyage sur une carte : étapes ordonnées (nuits) + lieux satellites sans ordre. Autosave. **Open source, self-hosted, option SaaS.** Marque centralisée dans `src/shared/constants/brand.ts` (`BRAND.name` / `BRAND.tagline`).
 
@@ -33,7 +33,22 @@
 - `npm run build` : `tsc -b` (3 sous-projets) + `vite build` → `dist/`
 - `npm start` : `NODE_ENV=production tsx server/index.ts` (sert `dist/` + API)
 - `npm run migrate:sqlite -- ./data/trips.db` : migration one-shot depuis l'ancienne bdd SQLite (rejouable, `ON CONFLICT DO NOTHING`)
-- `docker compose up -d --build` : homelab, **2 conteneurs** (`trip-visualizer` + `trip-visualizer-db`), données dans le volume nommé `pgdata`
+- `docker compose up -d` : homelab, **2 conteneurs** (`trip-visualizer` + `trip-visualizer-db`), données dans le volume nommé `pgdata`. L'app tire l'**image publiée par la CI** (`APP_IMAGE`, défaut `ghcr.io/aymericlefeyer/bon-voyage:latest`) — plus aucun build sur le serveur.
+- `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build` : build local de l'image (l'override `docker-compose.build.yml` réinjecte `build: .`)
+
+## CI/CD (`.github/workflows/deploy.yml`)
+
+Push sur `main` (hors `**.md`) ou `workflow_dispatch` → 3 jobs enchaînés, `concurrency` groupée (un push plus récent annule le précédent) :
+
+1. `check` : `npm ci` + `npm run lint` + `npx tsc -b` (types seuls — le bundle Vite est validé par le build de l'image).
+2. `image` : `docker/build-push-action` → `ghcr.io/${{ github.repository }}` (= `ghcr.io/aymericlefeyer/bon-voyage`) en `:latest` **et** `:sha-<commit>`, cache buildx `type=gha`. Auth via le `GITHUB_TOKEN` du workflow (`permissions: packages: write`), aucun PAT à gérer.
+3. `deploy` : `POST` sur le webhook de la stack Portainer (secret **`PORTAINER_WEBHOOK`**) → re-pull + redéploiement.
+
+- ⚠️ **`secrets` n'est pas accessible dans un `if:` de job** (contextes autorisés : `github`, `needs`, `vars`, `inputs`). Pour rendre le déploiement optionnel, `PORTAINER_WEBHOOK` est mappé dans l'`env` du step et testé en shell (`-z "$WEBHOOK"` → `::warning` + `exit 0`). Ne pas « corriger » en `if: secrets.X != ''` : la condition serait toujours fausse.
+- ⚠️ **GHCR exige un nom d'image en minuscules** — `AymericLeFeyer/bon-voyage` ne passe pas tel quel. C'est `docker/metadata-action` qui fait la conversion ; en cas de build manuel, penser au `tr '[:upper:]' '[:lower:]'`.
+- ⚠️ **Le dépôt GitHub s'appelle `bon-voyage`** (le remote local dit encore `trip-visualizer`, redirection GitHub). Le tag d'image en dur dans `docker-compose.yml` suit le **nom du dépôt** : le renommer casse le `docker compose pull` en prod.
+- ⚠️ **Package GHCR privé par défaut**, même sur un dépôt public : soit le passer en public (*Package settings → Change visibility*), soit ajouter un registry authentifié dans Portainer (PAT `read:packages`).
+- ⚠️ Le webhook doit être **joignable depuis les runners GitHub** (Internet). Portainer non exposé ⇒ le job `deploy` échoue ; l'image reste publiée et un `docker compose pull && docker compose up -d` manuel suffit.
 
 ## Structure DDD
 
