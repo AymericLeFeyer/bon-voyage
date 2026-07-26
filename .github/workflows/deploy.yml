@@ -64,32 +64,4 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy:
-    needs: lint-and-build
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Deploy to server via SSH
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: 22
-          script: |
-            echo "🚀 Starting deployment..."
-            
-            COMPOSE_FILE="/var/lib/docker/volumes/portainer_data/_data/compose/1/docker-compose.yml"
-            
-            echo "📦 Pulling latest image..."
-            docker compose -f $COMPOSE_FILE pull trip-visualizer
-            
-            echo "🔄 Restarting container..."
-            docker compose -f $COMPOSE_FILE up -d trip-visualizer
-            
-            echo "🧹 Cleaning up old images..."
-            docker image prune -f
-            
-            echo "✅ Deployment complete!"
-            docker compose -f $COMPOSE_FILE ps
+ 
