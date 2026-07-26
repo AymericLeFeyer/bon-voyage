@@ -80,16 +80,16 @@ jobs:
           script: |
             echo "🚀 Starting deployment..."
             
-            cd /var/lib/docker/volumes/portainer_data/_data/compose/1
+            COMPOSE_FILE="/var/lib/docker/volumes/portainer_data/_data/compose/1/docker-compose.yml"
             
             echo "📦 Pulling latest image..."
-            docker compose pull trip-visualizer
+            docker compose -f $COMPOSE_FILE pull trip-visualizer
             
             echo "🔄 Restarting container..."
-            docker compose up -d trip-visualizer
+            docker compose -f $COMPOSE_FILE up -d trip-visualizer
             
             echo "🧹 Cleaning up old images..."
             docker image prune -f
             
             echo "✅ Deployment complete!"
-            docker compose ps
+            docker compose -f $COMPOSE_FILE ps
