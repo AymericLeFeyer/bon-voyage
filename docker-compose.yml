@@ -20,8 +20,6 @@ services:
 
   trip-visualizer:
     image: ${APP_IMAGE:-ghcr.io/aymericlefeyer/bon-voyage:latest}
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
     container_name: trip-visualizer
     restart: unless-stopped
     depends_on:
