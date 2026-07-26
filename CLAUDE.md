@@ -1,6 +1,6 @@
 # CLAUDE.md — Bon Voyage
 
-> Dernière mise à jour : 2026-07-25 (mode de trajet aller/retour : **avion / train / non défini** ; devises en **codes ISO** — ~55 devises proposées, budget multi-devises générique)
+> Dernière mise à jour : 2026-07-25 (**bdd sortie du monolithe** : PostgreSQL en service Docker séparé, driver `pg`, document du voyage en JSONB, couche serveur passée en async ; mode de trajet aller/retour **avion / train / non défini** ; devises en **codes ISO**)
 
 **Bon Voyage** — *« Planifiez vos voyages et voyez-les prendre forme sur la carte. »* App web multi-comptes pour planifier/visualiser un voyage sur une carte : étapes ordonnées (nuits) + lieux satellites sans ordre. Autosave. **Open source, self-hosted, option SaaS.** Marque centralisée dans `src/shared/constants/brand.ts` (`BRAND.name` / `BRAND.tagline`).
 
@@ -21,24 +21,26 @@
 - **Thème clair/sombre** : `ThemeProvider` (classe `dark` sur `<html>`, persisté localStorage). Primary = **bleu**.
 - **Responsive** : mobile (<768px) = **lecture seule** (`MobileTripView`), tablette et + = éditable (`useIsMobile`).
 - Autocomplétion adresses : **Nominatim** (OSM), gratuit, sans clé (`src/infrastructure/geocoding/nominatim.ts`)
-- Back : **Express + `node:sqlite`** (SQLite embarqué dans Node 24, aucun module natif à compiler), exécuté via **tsx** (pas de compilation JS du serveur)
+- Back : **Express + PostgreSQL 16** (driver **`pg`**, 100 % JS — aucun module natif à compiler), exécuté via **tsx** (pas de compilation JS du serveur). **La bdd est un service Docker à part** (`db`), plus un fichier embarqué : elle est joignable de l'extérieur par n'importe quel client SQL.
 - **Auth** : hash mot de passe via **`node:crypto` scrypt** (pas de `bcrypt` natif), sessions par cookie HttpOnly, parsing cookie maison (aucune dépendance ajoutée). CORS avec `credentials: true` ; le client HTTP envoie `credentials: 'include'`.
-- Le voyage est stocké **en document JSON** dans la table `trips`, avec **colonnes dédiées** `owner_id` + `is_public` (le JSON = *contenu* seul). Tables `users`, `sessions`, `trip_members` (membres **acceptés**), `trip_invites` (invitations par email : `token, trip_id, email`, `UNIQUE(trip_id,email)`). Migration auto : `ALTER TABLE trips ADD COLUMN owner_id/is_public` si absentes.
+- Le voyage est stocké **en document JSONB** dans la table `trips`, avec **colonnes dédiées** `owner_id` (TEXT) + `is_public` (BOOLEAN) — le JSON = *contenu* seul. Tables `users`, `sessions`, `trip_members` (membres **acceptés**), `trip_invites` (invitations par email : `token, trip_id, email`, `UNIQUE(trip_id,email)`). Schéma créé par `initSchema()` (`CREATE TABLE IF NOT EXISTS`), **awaité avant `app.listen`**.
 - **Emails** : `server/email.ts` (Resend via `fetch` ou fallback console). Aucune dépendance npm ajoutée.
 
 ## Commandes
 
-- `npm run dev` : Vite (5173) + serveur tsx watch (42069) via `concurrently`. Proxy `/api` → 42069.
+- `docker compose up -d db` : **prérequis au dev** — lance PostgreSQL seul (l'app a besoin de `DATABASE_URL`).
+- `npm run dev` : Vite (5173) + serveur tsx watch (42069) via `concurrently`. Proxy `/api` → 42069. Charge `.env` via `--env-file-if-exists` (natif Node 24, pas de dotenv).
 - `npm run build` : `tsc -b` (3 sous-projets) + `vite build` → `dist/`
 - `npm start` : `NODE_ENV=production tsx server/index.ts` (sert `dist/` + API)
-- `docker compose up -d --build` : homelab, bdd persistée dans `./data`
+- `npm run migrate:sqlite -- ./data/trips.db` : migration one-shot depuis l'ancienne bdd SQLite (rejouable, `ON CONFLICT DO NOTHING`)
+- `docker compose up -d --build` : homelab, **2 conteneurs** (`trip-visualizer` + `trip-visualizer-db`), données dans le volume nommé `pgdata`
 
 ## Structure DDD
 
 ```
 shared/types/trip.ts          # Types voyage (Trip, Stage, Place, Accommodation, Transport, TripAccess, TripEnvelope)
 shared/types/user.ts          # Types comptes (User, PublicUser, RegisterInput, TripMembers, Invitation…)
-server/                       # Backend : db, repository (trips), auth (comptes/sessions), membership, routes, defaultTrip
+server/                       # Backend : db (pool pg + schéma), repository (trips), auth (comptes/sessions), membership, routes, defaultTrip, migrate-sqlite (one-shot)
 src/domain/trip/              # repositories/ (interface), services/ (factory + mutations pures)
 src/domain/auth/              # AuthRepository (interface)
 src/domain/membership/        # MembershipRepository (interface)
@@ -85,10 +87,15 @@ src/presentation/            # pages/, components/, hooks/, auth/ (AuthProvider)
 - `MembershipRepository` (`domain/membership/`, impl `infrastructure/membership/`, instance `membershipRepository`) : `getMembers`, `invite(tripId, email) → InviteResponse`, `cancelInvite(tripId, email)`, `removeMember(tripId, userId)`, `listInvitations`/`acceptInvitation(tripId)`/`declineInvitation(tripId)` (bannière, par email), `getInvite(token)`/`acceptInvite(token) → {tripId}`/`declineInvite(token)` (lien email).
 
 ### Backend (`server/`)
+
+> ⚠️ **Tout l'accès aux données est asynchrone** (`pg` ≠ l'ancien `node:sqlite` synchrone). Chaque fonction listée ci-dessous renvoie une `Promise` — seules `stripConfidential`, `toPublicUser`, `hashPassword`/`verifyPassword` et `requireAuth` restent synchrones.
+
+- `db.ts` : `pool` (`pg.Pool`, max 10), `waitForDb(retries, delay)` (le conteneur `db` peut démarrer après l'app), `initSchema()` (tous les `CREATE TABLE IF NOT EXISTS` + index), `withTransaction(fn)` (BEGIN/COMMIT/ROLLBACK + `release()` en `finally`). Un listener `pool.on('error')` est **obligatoire** : sans lui, un client inactif qui tombe tue le process.
 - `auth.ts` : scrypt (`hashPassword`/`verifyPassword`), `createUser/authenticate/updateUserProfile`, sessions (`issueSession`/`clearSession`), middlewares `withUser` (attache `req.user` sans bloquer) + `requireAuth` (401). `isFirstUser()` sert au **rattachement des voyages orphelins** (`claimOrphanTrips`) au 1er compte créé.
 - `membership.ts` : `resolveAccess(tripId, userId) → TripAccess|null` (source de vérité des permissions), `canEdit`, `getMembers`, `createInvite` (upsert token, réutilisé si déjà invité), `getInviteByToken`, `listInvitationsForEmail`, `acceptInvitation(tripId, {id,email})` (bannière, match email) / `declineInvitation`, `acceptInviteByToken(token, userId)` (lien = **capacité**, rattache l'utilisateur connecté quel que soit son email) / `declineInviteByToken`, `cancelInvite`, `removeMember`.
 - `email.ts` : `sendInvitationEmail` (ne jette pas), `emailEnabled`, `appUrl(origin)` (`APP_URL` sinon origine requête).
-- `repository.ts` : `stripConfidential(trip)`, `listTripsForUser`, `setTripPublic`, `claimOrphanTrips`, `getTripMeta` (owner/public sans désérialiser tout).
+  - `getParticipantsOfTrips(tripIds) → Map<tripId, PublicUser[]>` : propriétaire + membres acceptés de **plusieurs voyages en une seule requête** (UNION ALL trié `sort_order`, propriétaire en tête). Utilisé par `GET /trips` — **ne pas revenir à un `getMembers()` dans une boucle** (N+1 : un aller-retour réseau par voyage *et par membre*).
+- `repository.ts` : `stripConfidential(trip)` (pure, sync), `listTripsForUser`, `setTripPublic`, `claimOrphanTrips`, `getTripMeta` (owner/public sans rapatrier le document), `getTripTitle` (via `data->>'title'`, sans désérialiser tout).
 
 ### Services domaine (purs, renvoient un nouveau Trip)
 - `tripFactory.ts` : `createStage(index)`, `createPlace(name?)`, `createTransport()`, `createFlight()`, `createFlightLeg()`
@@ -206,10 +213,18 @@ src/presentation/            # pages/, components/, hooks/, auth/ (AuthProvider)
 - ⚠️ **Nominatim** : usage raisonnable (≈1 req/s), toujours débouncer (`useGeocodeSearch`) et fournir un `accept-language`. La requête passe `addressdetails=1` pour récupérer `address.country_code` → `GeoSuggestion.countryCode` (drapeau du voyage) ; ne pas le repasser à `0`.
 - ⚠️ **Suggestions d'adresse dans une modale** : la liste est en `absolute` dans un corps `overflow-y-auto` → elle est **clipée**. `NewTripModal` réserve donc un `min-h-[380px]` sous le champ destination ; penser à cet espace pour toute nouvelle modale contenant un `AddressAutocomplete`.
 - ⚠️ **`FitBounds` d'un voyage vide** : sans aucun point, `fitToTrip` cadre sur `trip.destinationLocation` (`jumpTo`, zoom 8) ; `WORLD_VIEW` (monde entier, zoom 1.4) ne reste que le repli des voyages sans destination.
-- ⚠️ **`node:sqlite`** (choisi car `better-sqlite3` échoue à compiler sous Windows sans Visual Studio Build Tools) : dispo dans Node 24 **sans flag**, émet juste un `ExperimentalWarning`. API proche de better-sqlite3 mais `prepare()` **sans generics** et `.get()/.all()` renvoient `Record<string,SQLOutputValue>` → caster via `as unknown as TripRow`.
+- ⚠️ **Driver `pg` obligatoirement pur JS** : ne **jamais** installer `pg-native` (binding natif) — la machine de dev n'a pas Visual Studio Build Tools, c'est la raison historique du choix de `node:sqlite` puis de `pg`. Même règle pour toute future dépendance serveur.
+- ⚠️ **Express 4 ne rattrape pas les rejets de promesse** : un `throw` dans un handler `async` produit un *unhandled rejection* qui **tue le process** au lieu de renvoyer un 500. Tout handler asynchrone **doit** être enveloppé dans `ah()` (`index.ts`), et le middleware d'erreur final (`onError`) reste le filet. `withUser` gère son cas à la main (`.then().catch(next)`).
+- ⚠️ **`initSchema()` avant `app.listen`** : le schéma n'est plus créé à l'import du module (comme le faisait SQLite en synchrone). `index.ts` fait `await waitForDb(); await initSchema();` en top-level await avant d'écouter. Ajouter une table = l'ajouter dans `initSchema`, pas ailleurs.
+- ⚠️ **Types de retour PostgreSQL** : `TIMESTAMPTZ` revient en **`Date`** (les mappers font `.toISOString()`, le contrat côté client reste des chaînes ISO), `JSONB` revient **déjà désérialisé** (pas de `JSON.parse` dans `rowToTrip`), `is_public` est un **vrai booléen** (plus de `=== 1` / `? 1 : 0`). En écriture, `data` est passé via `JSON.stringify(...)` + cast `$n::jsonb`. `result.changes` (SQLite) → **`result.rowCount`** (nullable → `?? 0`).
+- ⚠️ **Écritures enchaînées = transaction** : `acceptInvitation` / `acceptInviteByToken` ajoutent le membre **et** consomment l'invitation. Sur une base distante, une coupure entre les deux laisse une invitation fantôme → passer par `withTransaction` (et utiliser le `client` de la transaction, pas `pool`).
+- ⚠️ **Unicité des emails insensible à la casse** : `users` n'a **pas** de `UNIQUE` sur `email` mais un `UNIQUE INDEX ON users (lower(email))`. Un `UNIQUE` simple laisserait coexister `a@x.com` et `A@x.com`, alors que toutes les recherches se font en `lower(email)` — un des deux comptes serait irrécupérable à la connexion.
 - ⚠️ **`npm start` a besoin de `tsx`** (dép. de dev) au runtime : l'image Docker copie tout `node_modules` depuis l'étape build.
+- ⚠️ **`.env` chargé nativement** : `--env-file-if-exists=.env` dans les scripts `dev:server` / `start` / `migrate:sqlite` (Node ≥ 20.6, aucun dotenv). Sans ça, `DATABASE_URL` est absente en dev et `db.ts` jette au démarrage — c'est volontaire (échec explicite plutôt que repli silencieux).
+- ⚠️ **Publication du port de la bdd** : Docker écrit directement dans `iptables` et **court-circuite `ufw`/`firewalld`**. Le compose bind sur `${DB_BIND_HOST:-127.0.0.1}` par défaut ; passer à `0.0.0.0` expose Postgres au réseau (voire à Internet sur une machine exposée) quel que soit le pare-feu.
+- ⚠️ **Sauvegarde = `pg_dump`**, plus une copie de `./data` : les données vivent dans le volume Docker nommé `pgdata`. `docker compose exec db pg_dump -U bonvoyage bonvoyage > sauvegarde.sql`.
 - ⚠️ **`FitBounds`** ne recadre qu'au **changement de `trip.id`** (pas à chaque édition), sinon la carte saute pendant qu'on édite.
-- Le voyage est un **blob JSON** : pas de requêtes SQL par sous-entité. Toute évolution du modèle est rétro-compatible tant qu'on gère les champs optionnels/absents.
+- Le voyage est un **document JSONB** : pas de requêtes SQL par sous-entité côté app (mais requêtable depuis l'extérieur : `data->>'title'`, `jsonb_array_length(data->'stages')`). Toute évolution du modèle est rétro-compatible tant qu'on gère les champs optionnels/absents.
 - ⚠️ **`owner_id`/`is_public` = colonnes, pas dans le JSON** : le contenu (blob) et les métadonnées d'accès sont séparés. `rowToTrip` réinjecte `ownerId`/`isPublic` depuis les colonnes ; `updateTrip` (PUT autosave) **ne touche jamais** ces colonnes (settings via `PATCH …/settings`). Le client exclut ces champs de `TripInput` (`toInput` dans `useTrip`).
 - ⚠️ **Permissions = serveur** : `resolveAccess`/`canEdit` (`membership.ts`) sont la **seule** source de vérité. Le front (`canEdit`) est purement UX. Ne jamais se reposer sur le client pour cacher du confidentiel → toujours passer par `stripConfidential` côté serveur pour l'accès `public`.
 - ⚠️ **Cookies de session** : `credentials: 'include'` (client) + `cors({ credentials: true })` (serveur) sont **obligatoires** ensemble. Cookie `HttpOnly`, `secure` en production seulement (sinon bloqué en dev http). Parsing cookie fait main dans `auth.ts` (pas de `cookie-parser`).

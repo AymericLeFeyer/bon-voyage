@@ -1,27 +1,57 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: trip-visualizer-db
+    restart: unless-stopped
+    environment:
+      # ⚠️ Ces lignes sont indispensables : sans elles, les variables d'une stack
+      # Portainer servent seulement à l'interpolation du compose et n'entrent pas
+      # dans le conteneur.
+      - POSTGRES_USER=${POSTGRES_USER:-bonvoyage}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD est requis (voir .env.example)}
+      - POSTGRES_DB=${POSTGRES_DB:-bonvoyage}
+    ports:
+      # Accès externe à la bdd (DBeaver, pgAdmin, psql).
+      # ⚠️ Docker publie ses ports en écrivant dans iptables, ce qui court-circuite
+      # ufw/firewalld. Par défaut on écoute donc sur 127.0.0.1 (hôte uniquement,
+      # via tunnel SSH). Mettre DB_BIND_HOST=0.0.0.0 pour ouvrir au LAN.
+      - "${DB_BIND_HOST:-127.0.0.1}:${DB_PORT:-5432}:5432"
+    volumes:
+      # Volume nommé : pas de souci de permissions UID selon l'hôte.
+      # Sauvegarde via `pg_dump`, pas par copie de fichiers.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bonvoyage} -d ${POSTGRES_DB:-bonvoyage}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   trip-visualizer:
     build: .
     container_name: trip-visualizer
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "42069:42069"
-    volumes:
-      # Persistance de la bdd SQLite sur l'hôte (homelab)
-      - ./data:/app/data
     environment:
       - NODE_ENV=production
       - PORT=42069
-      - DATABASE_PATH=/app/data/trips.db
+      # Source unique de vérité = les POSTGRES_* du .env ; l'URL est assemblée ici.
+      # `db` = nom du service ci-dessus (résolution DNS interne au réseau compose).
+      - DATABASE_URL=postgres://${POSTGRES_USER:-bonvoyage}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-bonvoyage}
       # --- Emails d'invitation (optionnel) ---
       # Renseignées dans le .env à côté du compose (ou les « Environment
       # variables » d'une stack Portainer) ; vides = mode "console" (lien
       # d'invitation copiable dans l'UI).
-      # ⚠️ Ces lignes sont indispensables : sans elles, les variables de la
-      # stack servent seulement à l'interpolation et n'entrent pas dans le
-      # conteneur.
       # APP_URL=https://voyage.votre-domaine.com
       # RESEND_API_KEY=re_xxxxxxxxxxxx
       # EMAIL_FROM=Bon Voyage <invitations@votre-domaine.com>
       - APP_URL=${APP_URL:-}
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - EMAIL_FROM=${EMAIL_FROM:-}
+
+volumes:
+  pgdata:

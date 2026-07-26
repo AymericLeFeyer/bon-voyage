@@ -1,7 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import type { NextFunction, Request, Response } from 'express';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { nanoid } from 'nanoid';
-import { db } from './db.ts';
+import { pool } from './db.ts';
 import type { PublicUser, User } from '../shared/types/user.ts';
 
 const SESSION_COOKIE = 'bv_session';
@@ -14,21 +14,21 @@ interface UserRow {
   name: string;
   country: string | null;
   avatar: string | null;
-  created_at: string;
+  created_at: Date;
 }
 
-const selectUserById = db.prepare('SELECT * FROM users WHERE id = ?');
-const selectUserByEmail = db.prepare('SELECT * FROM users WHERE lower(email) = lower(?)');
-const insertUser = db.prepare(
-  'INSERT INTO users (id, email, password_hash, name, country, avatar, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-);
-const countUsers = db.prepare('SELECT COUNT(*) AS n FROM users');
+const SELECT_USER_BY_ID = 'SELECT * FROM users WHERE id = $1';
+const SELECT_USER_BY_EMAIL = 'SELECT * FROM users WHERE lower(email) = lower($1)';
+const INSERT_USER = `
+  INSERT INTO users (id, email, password_hash, name, country, avatar, created_at)
+  VALUES ($1, $2, $3, $4, $5, $6, $7)
+`;
+const COUNT_USERS = 'SELECT COUNT(*)::int AS n FROM users';
 
-const insertSession = db.prepare(
-  'INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
-);
-const selectSession = db.prepare('SELECT user_id, expires_at FROM sessions WHERE token = ?');
-const deleteSession = db.prepare('DELETE FROM sessions WHERE token = ?');
+const INSERT_SESSION =
+  'INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)';
+const SELECT_SESSION = 'SELECT user_id, expires_at FROM sessions WHERE token = $1';
+const DELETE_SESSION = 'DELETE FROM sessions WHERE token = $1';
 
 // --- Mots de passe (node:crypto scrypt, aucun module natif) ---
 function hashPassword(password: string): string {
@@ -53,7 +53,7 @@ function rowToUser(row: UserRow): User {
     name: row.name,
     country: row.country ?? undefined,
     avatar: row.avatar ?? undefined,
-    createdAt: row.created_at,
+    createdAt: row.created_at.toISOString(),
   };
 }
 
@@ -62,31 +62,31 @@ export function toPublicUser(user: User): PublicUser {
 }
 
 // --- Comptes ---
-export function isFirstUser(): boolean {
-  const row = countUsers.get() as unknown as { n: number };
-  return Number(row.n) === 0;
+export async function isFirstUser(): Promise<boolean> {
+  const { rows } = await pool.query<{ n: number }>(COUNT_USERS);
+  return Number(rows[0].n) === 0;
 }
 
-export function findUserByEmail(email: string): User | null {
-  const row = selectUserByEmail.get(email) as unknown as UserRow | undefined;
-  return row ? rowToUser(row) : null;
+export async function findUserByEmail(email: string): Promise<User | null> {
+  const { rows } = await pool.query<UserRow>(SELECT_USER_BY_EMAIL, [email]);
+  return rows[0] ? rowToUser(rows[0]) : null;
 }
 
-export function findUserById(id: string): User | null {
-  const row = selectUserById.get(id) as unknown as UserRow | undefined;
-  return row ? rowToUser(row) : null;
+export async function findUserById(id: string): Promise<User | null> {
+  const { rows } = await pool.query<UserRow>(SELECT_USER_BY_ID, [id]);
+  return rows[0] ? rowToUser(rows[0]) : null;
 }
 
-export function createUser(input: {
+export async function createUser(input: {
   email: string;
   password: string;
   name: string;
   country?: string;
   avatar?: string;
-}): User {
+}): Promise<User> {
   const now = new Date().toISOString();
   const id = nanoid(12);
-  insertUser.run(
+  await pool.query(INSERT_USER, [
     id,
     input.email.trim(),
     hashPassword(input.password),
@@ -94,7 +94,7 @@ export function createUser(input: {
     input.country?.trim() || null,
     input.avatar || null,
     now,
-  );
+  ]);
   return {
     id,
     email: input.email.trim(),
@@ -105,26 +105,29 @@ export function createUser(input: {
   };
 }
 
-export function authenticate(email: string, password: string): User | null {
-  const row = selectUserByEmail.get(email) as unknown as UserRow | undefined;
+export async function authenticate(email: string, password: string): Promise<User | null> {
+  const { rows } = await pool.query<UserRow>(SELECT_USER_BY_EMAIL, [email]);
+  const row = rows[0];
   if (!row) return null;
   if (!verifyPassword(password, row.password_hash)) return null;
   return rowToUser(row);
 }
 
-export function updateUserProfile(
+export async function updateUserProfile(
   id: string,
   patch: { name?: string; country?: string; avatar?: string; password?: string },
-): User | null {
-  const existing = selectUserById.get(id) as unknown as UserRow | undefined;
+): Promise<User | null> {
+  const { rows } = await pool.query<UserRow>(SELECT_USER_BY_ID, [id]);
+  const existing = rows[0];
   if (!existing) return null;
   const name = patch.name?.trim() || existing.name;
   const country = patch.country !== undefined ? patch.country.trim() || null : existing.country;
   const avatar = patch.avatar !== undefined ? patch.avatar || null : existing.avatar;
   const passwordHash = patch.password ? hashPassword(patch.password) : existing.password_hash;
-  db.prepare(
-    'UPDATE users SET name = ?, country = ?, avatar = ?, password_hash = ? WHERE id = ?',
-  ).run(name, country, avatar, passwordHash, id);
+  await pool.query(
+    'UPDATE users SET name = $1, country = $2, avatar = $3, password_hash = $4 WHERE id = $5',
+    [name, country, avatar, passwordHash, id],
+  );
   return findUserById(id);
 }
 
@@ -142,20 +145,20 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out;
 }
 
-function createSession(userId: string): string {
+async function createSession(userId: string): Promise<string> {
   const token = randomBytes(32).toString('hex');
   const now = Date.now();
-  insertSession.run(
+  await pool.query(INSERT_SESSION, [
     token,
     userId,
     new Date(now).toISOString(),
     new Date(now + SESSION_TTL_MS).toISOString(),
-  );
+  ]);
   return token;
 }
 
-export function issueSession(res: Response, userId: string): void {
-  const token = createSession(userId);
+export async function issueSession(res: Response, userId: string): Promise<void> {
+  const token = await createSession(userId);
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
@@ -165,21 +168,20 @@ export function issueSession(res: Response, userId: string): void {
   });
 }
 
-export function clearSession(req: Request, res: Response): void {
+export async function clearSession(req: Request, res: Response): Promise<void> {
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-  if (token) deleteSession.run(token);
+  if (token) await pool.query(DELETE_SESSION, [token]);
   res.clearCookie(SESSION_COOKIE, { path: '/' });
 }
 
-function userFromRequest(req: Request): User | null {
+async function userFromRequest(req: Request): Promise<User | null> {
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
   if (!token) return null;
-  const row = selectSession.get(token) as unknown as
-    | { user_id: string; expires_at: string }
-    | undefined;
+  const { rows } = await pool.query<{ user_id: string; expires_at: Date }>(SELECT_SESSION, [token]);
+  const row = rows[0];
   if (!row) return null;
-  if (new Date(row.expires_at).getTime() < Date.now()) {
-    deleteSession.run(token);
+  if (row.expires_at.getTime() < Date.now()) {
+    await pool.query(DELETE_SESSION, [token]);
     return null;
   }
   return findUserById(row.user_id);
@@ -195,12 +197,19 @@ declare global {
   }
 }
 
-/** Middleware optionnel : attache req.user si connecté, sans bloquer. */
-export function withUser(req: Request, _res: Response, next: NextFunction): void {
-  const user = userFromRequest(req);
-  if (user) req.user = user;
-  next();
-}
+/**
+ * Middleware optionnel : attache req.user si connecté, sans bloquer.
+ * ⚠️ Asynchrone désormais : les erreurs sont passées à `next` (Express 4 ne
+ * rattrape pas les rejets de promesse — un throw non géré tuerait le process).
+ */
+export const withUser: RequestHandler = (req: Request, _res: Response, next: NextFunction) => {
+  userFromRequest(req)
+    .then((user) => {
+      if (user) req.user = user;
+      next();
+    })
+    .catch(next);
+};
 
 /** Middleware strict : 401 si non connecté. */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {

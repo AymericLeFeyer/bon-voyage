@@ -11,9 +11,9 @@ FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=42069
-ENV DATABASE_PATH=/app/data/trips.db
+# DATABASE_URL est fournie par le docker-compose (service `db`).
 
-# node_modules (dont better-sqlite3 compilé et tsx) + build + sources serveur
+# node_modules (dont tsx, requis au runtime par `npm start`) + build + sources serveur
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
@@ -21,8 +21,6 @@ COPY --from=build /app/server ./server
 COPY --from=build /app/shared ./shared
 COPY --from=build /app/tsconfig*.json ./
 
-RUN mkdir -p /app/data
-VOLUME ["/app/data"]
 EXPOSE 42069
 
 CMD ["npm", "start"]
